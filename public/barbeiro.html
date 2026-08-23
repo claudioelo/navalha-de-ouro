@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navalha de Ouro — Agenda do Barbeiro</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/estilo.css">
+</head>
+
+<body>
+    <div class="stripes"></div>
+    <header>
+        <h1>Navalha de Ouro</h1>
+        <div class="sub">Agenda do barbeiro</div>
+    </header>
+
+    <main>
+        <section class="card">
+            <h2>Horários marcados</h2>
+            <div class="filtros">
+                <div>
+                    <label for="filtroBarbeiro">Barbeiro</label>
+                    <select id="filtroBarbeiro"><option value="">Todos</option></select>
+                </div>
+                <div>
+                    <label for="filtroData">Data</label>
+                    <input type="date" id="filtroData">
+                </div>
+            </div>
+            <div id="tabelaWrap"><p class="vazio">Carregando...</p></div>
+            <p class="aviso-auto">Atualiza sozinho a cada 10 segundos</p>
+        </section>
+    </main>
+
+    <script>
+        const filtroBarbeiro = document.getElementById('filtroBarbeiro');
+        const filtroData = document.getElementById('filtroData');
+        const tabelaWrap = document.getElementById('tabelaWrap');
+
+        async function carregarBarbeiros() {
+            const barbeiros = await fetch('/api/barbeiros').then(r => r.json());
+            const selecionado = filtroBarbeiro.value;
+            filtroBarbeiro.innerHTML = '<option value="">Todos</option>' +
+                barbeiros.map(b => `<option value="${b}">${b}</option>`).join('');
+            filtroBarbeiro.value = selecionado;
+        }
+
+        function formatarData(iso) {
+            const [ano, mes, dia] = iso.split('-');
+            return `${dia}/${mes}/${ano}`;
+        }
+
+        async function carregarAgenda() {
+            const params = new URLSearchParams();
+            if (filtroBarbeiro.value) params.set('barbeiro', filtroBarbeiro.value);
+            if (filtroData.value) params.set('data', filtroData.value);
+
+            const lista = await fetch(`/api/agendamentos?${params}`).then(r => r.json());
+
+            if (lista.length === 0) {
+                tabelaWrap.innerHTML = '<p class="vazio">Nenhum agendamento encontrado.</p>';
+                return;
+            }
+
+            tabelaWrap.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Data</th><th>Hora</th><th>Cliente</th><th>Telefone</th><th>Barbeiro</th><th>Serviço</th><th>Preço</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${lista.map(a => `
+              <tr>
+                <td>${formatarData(a.data)}</td>
+                <td>${a.hora}</td>
+                <td>${a.cliente}</td>
+                <td>${a.telefone || '—'}</td>
+                <td>${a.barbeiro}</td>
+                <td>${a.servico}</td>
+                <td>R$${a.preco}</td>
+                <td><button class="btn-cancelar" data-id="${a.id}">cancelar</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+
+            tabelaWrap.querySelectorAll('.btn-cancelar').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    if (!confirm('Cancelar esse agendamento?')) return;
+                    await fetch(`/api/agendamentos/${btn.dataset.id}`, { method: 'DELETE' });
+                    carregarAgenda();
+                });
+            });
+        }
+
+        filtroBarbeiro.addEventListener('change', carregarAgenda);
+        filtroData.addEventListener('change', carregarAgenda);
+
+        async function iniciar() {
+            await carregarBarbeiros();
+            await carregarAgenda();
+        }
+
+        iniciar();
+        setInterval(carregarAgenda, 10000);
+    </script>
+</body>
+
+</html>

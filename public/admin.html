@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navalha de Ouro — Administração</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/estilo.css">
+</head>
+
+<body>
+    <div class="stripes"></div>
+    <header>
+        <h1>Navalha de Ouro</h1>
+        <div class="sub">Administração</div>
+    </header>
+
+    <main>
+        <section class="card">
+            <h2>Barbeiros</h2>
+            <form id="formBarbeiro">
+                <div class="full">
+                    <label for="novoBarbeiro">Nome do barbeiro</label>
+                    <input type="text" id="novoBarbeiro" required>
+                </div>
+                <button type="submit" class="btn-primary">Adicionar barbeiro</button>
+            </form>
+            <div id="listaBarbeiros" style="margin-top:16px; display:grid; gap:8px;"></div>
+        </section>
+
+        <section class="card">
+            <h2>Serviços</h2>
+            <form id="formServico">
+                <div class="full">
+                    <label for="novoServicoNome">Nome do serviço</label>
+                    <input type="text" id="novoServicoNome" required>
+                </div>
+                <div>
+                    <label for="novoServicoDuracao">Duração (min)</label>
+                    <input type="number" id="novoServicoDuracao" min="1" required>
+                </div>
+                <div>
+                    <label for="novoServicoPreco">Preço (R$)</label>
+                    <input type="number" id="novoServicoPreco" min="0" step="0.01" required>
+                </div>
+                <button type="submit" class="btn-primary">Adicionar serviço</button>
+            </form>
+            <div id="listaServicos" style="margin-top:16px; display:grid; gap:8px;"></div>
+        </section>
+    </main>
+
+    <script>
+        const formBarbeiro = document.getElementById('formBarbeiro');
+        const formServico = document.getElementById('formServico');
+        const listaBarbeiros = document.getElementById('listaBarbeiros');
+        const listaServicos = document.getElementById('listaServicos');
+
+        function renderBarbeiros(barbeiros) {
+            listaBarbeiros.innerHTML = barbeiros.map(b =>
+                `<div style="display:flex;justify-content:space-between;align-items:center;">
+          <span>${b}</span>
+          <button data-nome="${b}" class="removerBarbeiro btn-cancelar">remover</button>
+        </div>`
+            ).join('') || '<p class="vazio" style="padding:0;">Nenhum barbeiro cadastrado</p>';
+
+            listaBarbeiros.querySelectorAll('.removerBarbeiro').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    await fetch(`/api/barbeiros/${encodeURIComponent(btn.dataset.nome)}`, { method: 'DELETE' });
+                    carregarBarbeiros();
+                });
+            });
+        }
+
+        function renderServicos(servicos) {
+            listaServicos.innerHTML = servicos.map(s =>
+                `<div style="display:flex;justify-content:space-between;align-items:center;">
+          <span>${s.nome} <span class="tag">${s.duracao}min · R$${s.preco}</span></span>
+          <button data-nome="${s.nome}" class="removerServico btn-cancelar">remover</button>
+        </div>`
+            ).join('') || '<p class="vazio" style="padding:0;">Nenhum serviço cadastrado</p>';
+
+            listaServicos.querySelectorAll('.removerServico').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    await fetch(`/api/servicos/${encodeURIComponent(btn.dataset.nome)}`, { method: 'DELETE' });
+                    carregarServicos();
+                });
+            });
+        }
+
+        async function carregarBarbeiros() {
+            const barbeiros = await fetch('/api/barbeiros').then(r => r.json());
+            renderBarbeiros(barbeiros);
+        }
+
+        async function carregarServicos() {
+            const servicos = await fetch('/api/servicos').then(r => r.json());
+            renderServicos(servicos);
+        }
+
+        formBarbeiro.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const input = document.getElementById('novoBarbeiro');
+            const nome = input.value.trim();
+            if (!nome) return;
+
+            const resposta = await fetch('/api/barbeiros', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nome })
+            });
+            if (resposta.ok) {
+                input.value = '';
+                carregarBarbeiros();
+            } else {
+                const erro = await resposta.json();
+                alert(erro.erro || 'Erro ao cadastrar barbeiro.');
+            }
+        });
+
+        formServico.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const nome = document.getElementById('novoServicoNome').value.trim();
+            const duracao = Number(document.getElementById('novoServicoDuracao').value);
+            const preco = Number(document.getElementById('novoServicoPreco').value);
+
+            const resposta = await fetch('/api/servicos', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nome, duracao, preco })
+            });
+            if (resposta.ok) {
+                formServico.reset();
+                carregarServicos();
+            } else {
+                const erro = await resposta.json();
+                alert(erro.erro || 'Erro ao cadastrar serviço.');
+            }
+        });
+
+        carregarBarbeiros();
+        carregarServicos();
+    </script>
+</body>
+
+</html>

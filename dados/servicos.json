@@ -1,0 +1,22 @@
+[
+  {
+    "nome": "Corte",
+    "duracao": 30,
+    "preco": 35
+  },
+  {
+    "nome": "Barba",
+    "duracao": 20,
+    "preco": 25
+  },
+  {
+    "nome": "Corte + Barba",
+    "duracao": 45,
+    "preco": 55
+  },
+  {
+    "nome": "Sobrancelha",
+    "duracao": 10,
+    "preco": 15
+  }
+]

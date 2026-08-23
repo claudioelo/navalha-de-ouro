@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Barbearia Navalha de Ouro — Agendar</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/estilo.css">
+</head>
+
+<body>
+    <div class="stripes"></div>
+    <header>
+        <h1>Navalha de Ouro</h1>
+        <div class="sub">Agende seu horário</div>
+    </header>
+
+    <main>
+        <section class="card">
+            <h2>Novo agendamento</h2>
+            <form id="formAgendamento">
+                <div class="full">
+                    <label for="cliente">Seu nome</label>
+                    <input type="text" id="cliente" required>
+                </div>
+                <div>
+                    <label for="telefone">Telefone / WhatsApp</label>
+                    <input type="tel" id="telefone" placeholder="(43) 90000-0000">
+                </div>
+                <div>
+                    <label for="email">E-mail (pra confirmação)</label>
+                    <input type="email" id="email" placeholder="opcional">
+                </div>
+                <div>
+                    <label for="barbeiro">Barbeiro</label>
+                    <select id="barbeiro" required></select>
+                </div>
+                <div>
+                    <label for="servico">Serviço</label>
+                    <select id="servico" required></select>
+                </div>
+                <div>
+                    <label for="data">Data</label>
+                    <input type="date" id="data" required>
+                </div>
+                <div>
+                    <label for="hora">Horário</label>
+                    <input type="time" id="hora" required>
+                </div>
+                <div class="msg" id="msgForm"></div>
+                <button type="submit" class="btn-primary">Confirmar agendamento</button>
+            </form>
+        </section>
+    </main>
+
+    <script>
+        const formAgendamento = document.getElementById('formAgendamento');
+        const selectBarbeiro = document.getElementById('barbeiro');
+        const selectServico = document.getElementById('servico');
+        const inputData = document.getElementById('data');
+        const msgForm = document.getElementById('msgForm');
+
+        let servicos = [];
+
+        async function carregarOpcoes() {
+            const [barbeiros, servs] = await Promise.all([
+                fetch('/api/barbeiros').then(r => r.json()),
+                fetch('/api/servicos').then(r => r.json())
+            ]);
+            servicos = servs;
+            selectBarbeiro.innerHTML = barbeiros.map(b => `<option value="${b}">${b}</option>`).join('');
+            selectServico.innerHTML = servs.map(s => `<option value="${s.nome}">${s.nome} — ${s.duracao}min — R$${s.preco}</option>`).join('');
+        }
+
+        formAgendamento.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            msgForm.className = 'msg';
+            msgForm.textContent = '';
+
+            const corpo = {
+                cliente: document.getElementById('cliente').value.trim(),
+                telefone: document.getElementById('telefone').value.trim(),
+                email: document.getElementById('email').value.trim(),
+                barbeiro: selectBarbeiro.value,
+                servico: selectServico.value,
+                data: inputData.value,
+                hora: document.getElementById('hora').value
+            };
+
+            try {
+                const resposta = await fetch('/api/agendamentos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(corpo)
+                });
+                const dados = await resposta.json();
+
+                if (!resposta.ok) {
+                    msgForm.className = 'msg erro';
+                    msgForm.textContent = dados.erro || 'Não deu pra agendar. Tente outro horário.';
+                    return;
+                }
+
+                msgForm.className = 'msg sucesso';
+                msgForm.textContent = 'Agendamento confirmado com sucesso! Te esperamos por aqui.';
+                formAgendamento.reset();
+                inputData.min = new Date().toISOString().split('T')[0];
+            } catch (erro) {
+                msgForm.className = 'msg erro';
+                msgForm.textContent = 'Erro ao conectar com o servidor. Tente de novo.';
+            }
+        });
+
+        inputData.min = new Date().toISOString().split('T')[0];
+        carregarOpcoes();
+    </script>
+</body>
+
+</html>
