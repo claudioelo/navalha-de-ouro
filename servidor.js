@@ -18,7 +18,7 @@ const PASTA_PUBLIC = path.join(__dirname, 'public');
 // pegue sua API key e cole abaixo. Enquanto RESEND_API_KEY estiver vazio,
 // o sistema só mostra no console o que teria sido enviado (não dá erro, só não manda de verdade).
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
-const EMAIL_REMETENTE = 'agendamentos@seudominio.com'; // troque depois de configurar o Resend
+const EMAIL_REMETENTE = 'onboarding@resend.dev'; // troque depois de configurar o Resend
 
 async function enviarEmailConfirmacao(agendamento) {
   const assunto = 'Agendamento confirmado - Navalha de Ouro';
