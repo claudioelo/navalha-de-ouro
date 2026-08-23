@@ -1,0 +1,64 @@
+NAVALHA DE OURO - SISTEMA DE AGENDAMENTOS
+===========================================
+
+COMO TESTAR NO SEU PC
+----------------------
+1. Abra o terminal dentro dessa pasta
+2. Rode: node servidor.js
+3. Abra no navegador:
+   - http://localhost:3000/          -> tela do CLIENTE (quem agenda)
+   - http://localhost:3000/barbeiro  -> tela do BARBEIRO (quem acompanha)
+   - http://localhost:3000/admin     -> tela do DONO (cadastra/remove barbeiro e serviço)
+
+Só funciona no seu PC enquanto o terminal estiver aberto rodando o servidor.
+Pra virar um link que qualquer um acessa, precisa hospedar (próximo passo).
+
+
+COMO COLOCAR NO AR DE GRAÇA (Render.com)
+------------------------------------------
+1. Crie uma conta em https://render.com (dá pra usar login do GitHub)
+2. Crie um repositório no GitHub e suba essa pasta inteira pra lá
+3. No Render, clique em "New +" -> "Web Service"
+4. Selecione o repositório que você acabou de subir
+5. Configurações:
+   - Build Command: (deixe em branco, não precisa)
+   - Start Command: node servidor.js
+6. Clique em "Create Web Service"
+7. Espere uns 2-3 minutos. Ele te dá um link tipo:
+   https://navalha-de-ouro.onrender.com
+
+Esse link já pode ser mandado pros clientes (a raiz "/" é a página de agendamento)
+e o link + "/barbeiro" é a página que o barbeiro acompanha no celular dele.
+
+IMPORTANTE sobre o plano grátis do Render:
+- O servidor "dorme" depois de ficar um tempo sem visitas. Quando alguém acessa
+  de novo, demora uns 30-50 segundos pra "acordar" (só na primeira vez).
+- Os arquivos de dados (agendamentos.json etc) podem ser apagados quando o
+  Render reinicia o serviço. Pra testar com seu primo tá ótimo. Se for usar
+  de verdade, o próximo passo é trocar os arquivos JSON por um banco de dados
+  de verdade (ex: PostgreSQL, que o Render também oferece grátis).
+
+
+COMO ATIVAR O E-MAIL DE CONFIRMAÇÃO
+-------------------------------------
+1. Crie uma conta grátis em https://resend.com
+2. Pegue sua API Key (fica no painel deles)
+3. No Render, vá em "Environment" e adicione uma variável:
+   Nome: RESEND_API_KEY
+   Valor: (a chave que o Resend te deu)
+4. Também troque, dentro do servidor.js, a linha:
+   const EMAIL_REMETENTE = 'agendamentos@seudominio.com';
+   pelo e-mail que o Resend liberar pra você usar (eles dão instruções).
+
+Enquanto você não configurar isso, o sistema funciona normal, só que em vez
+de mandar o e-mail de verdade, ele escreve no console (log) o que teria sido
+enviado. Não trava nem dá erro.
+
+
+ESTRUTURA DOS ARQUIVOS
+------------------------
+servidor.js          -> o back-end (rotas, regras de conflito de horário, e-mail)
+public/cliente.html  -> tela onde o cliente agenda
+public/barbeiro.html -> tela onde o barbeiro acompanha (atualiza sozinha a cada 10s)
+public/estilo.css    -> visual das duas páginas
+dados/*.json         -> onde ficam salvos agendamentos, barbeiros e serviços
