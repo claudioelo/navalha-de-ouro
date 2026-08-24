@@ -43,9 +43,20 @@
                     <label for="servico">Serviço</label>
                     <select id="servico" required></select>
                 </div>
-                <div>
-                    <label for="data">Data</label>
-                    <input type="date" id="data" required>
+                <div class="full">
+                    <label>Data</label>
+                    <div id="calendario" class="calendario">
+                        <div class="calendario-topo">
+                            <button type="button" id="mesAnterior" class="calendario-nav">‹</button>
+                            <span id="calendarioMesAno"></span>
+                            <button type="button" id="mesSeguinte" class="calendario-nav">›</button>
+                        </div>
+                        <div class="calendario-semana">
+                            <span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span>
+                        </div>
+                        <div id="calendarioDias" class="calendario-dias"></div>
+                    </div>
+                    <input type="hidden" id="data" required>
                 </div>
                 <div>
                     <label for="hora">Horário</label>
@@ -65,21 +76,94 @@
         const msgForm = document.getElementById('msgForm');
 
         let servicos = [];
+        let diasFechados = [];
+        let mesAtual = new Date();
+        mesAtual.setDate(1);
+
+        const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+        function formatarDataLocal(d) {
+            const ano = d.getFullYear();
+            const mes = String(d.getMonth() + 1).padStart(2, '0');
+            const dia = String(d.getDate()).padStart(2, '0');
+            return `${ano}-${mes}-${dia}`;
+        }
+
+        function renderCalendario() {
+            const hoje = new Date();
+            hoje.setHours(0, 0, 0, 0);
+
+            document.getElementById('calendarioMesAno').textContent =
+                `${nomesMeses[mesAtual.getMonth()]} ${mesAtual.getFullYear()}`;
+
+            const primeiroDiaSemana = new Date(mesAtual.getFullYear(), mesAtual.getMonth(), 1).getDay();
+            const totalDias = new Date(mesAtual.getFullYear(), mesAtual.getMonth() + 1, 0).getDate();
+
+            const container = document.getElementById('calendarioDias');
+            container.innerHTML = '';
+
+            for (let i = 0; i < primeiroDiaSemana; i++) {
+                container.appendChild(document.createElement('span'));
+            }
+
+            for (let dia = 1; dia <= totalDias; dia++) {
+                const dataDia = new Date(mesAtual.getFullYear(), mesAtual.getMonth(), dia);
+                const diaSemana = dataDia.getDay();
+                const passou = dataDia < hoje;
+                const fechado = diasFechados.includes(diaSemana);
+                const indisponivel = passou || fechado;
+
+                const botao = document.createElement('button');
+                botao.type = 'button';
+                botao.textContent = dia;
+                botao.className = 'calendario-dia' + (indisponivel ? ' indisponivel' : '');
+                if (inputData.value === formatarDataLocal(dataDia)) botao.classList.add('selecionado');
+
+                if (!indisponivel) {
+                    botao.addEventListener('click', () => {
+                        inputData.value = formatarDataLocal(dataDia);
+                        renderCalendario();
+                    });
+                } else {
+                    botao.disabled = true;
+                }
+
+                container.appendChild(botao);
+            }
+        }
+
+        document.getElementById('mesAnterior').addEventListener('click', () => {
+            mesAtual.setMonth(mesAtual.getMonth() - 1);
+            renderCalendario();
+        });
+        document.getElementById('mesSeguinte').addEventListener('click', () => {
+            mesAtual.setMonth(mesAtual.getMonth() + 1);
+            renderCalendario();
+        });
 
         async function carregarOpcoes() {
-            const [barbeiros, servs] = await Promise.all([
+            const [barbeiros, servs, config] = await Promise.all([
                 fetch('/api/barbeiros').then(r => r.json()),
-                fetch('/api/servicos').then(r => r.json())
+                fetch('/api/servicos').then(r => r.json()),
+                fetch('/api/configuracao').then(r => r.json())
             ]);
             servicos = servs;
+            diasFechados = config.diasFechados || [];
             selectBarbeiro.innerHTML = barbeiros.map(b => `<option value="${b}">${b}</option>`).join('');
             selectServico.innerHTML = servs.map(s => `<option value="${s.nome}">${s.nome} — ${s.duracao}min — R$${s.preco}</option>`).join('');
+            renderCalendario();
         }
 
         formAgendamento.addEventListener('submit', async (e) => {
             e.preventDefault();
             msgForm.className = 'msg';
             msgForm.textContent = '';
+
+            if (!inputData.value) {
+                msgForm.className = 'msg erro';
+                msgForm.textContent = 'Escolha uma data no calendário.';
+                return;
+            }
 
             const corpo = {
                 cliente: document.getElementById('cliente').value.trim(),
@@ -108,14 +192,14 @@
                 msgForm.className = 'msg sucesso';
                 msgForm.textContent = 'Agendamento confirmado com sucesso! Te esperamos por aqui.';
                 formAgendamento.reset();
-                inputData.min = new Date().toISOString().split('T')[0];
+                inputData.value = '';
+                renderCalendario();
             } catch (erro) {
                 msgForm.className = 'msg erro';
                 msgForm.textContent = 'Erro ao conectar com o servidor. Tente de novo.';
             }
         });
 
-        inputData.min = new Date().toISOString().split('T')[0];
         carregarOpcoes();
     </script>
 </body>
