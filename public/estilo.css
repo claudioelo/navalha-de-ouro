@@ -338,3 +338,43 @@ tr:hover td {
     opacity: 0.3;
     cursor: not-allowed;
 }
+
+.grade-horarios {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+}
+
+.horario-botao {
+    background: var(--navy);
+    border: 1px solid var(--line);
+    color: var(--cream);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    padding: 8px 4px;
+    border-radius: 4px;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.horario-botao:hover:not(:disabled) {
+    border-color: var(--gold);
+}
+
+.horario-botao.selecionado {
+    background: var(--burgundy);
+    border-color: var(--burgundy);
+    color: var(--cream);
+}
+
+.horario-botao.indisponivel {
+    text-decoration: line-through;
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+@media (max-width: 400px) {
+    .grade-horarios {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
