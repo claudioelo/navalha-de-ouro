@@ -11,6 +11,7 @@ const PASTA_DADOS = path.join(__dirname, 'dados');
 const ARQ_AGENDAMENTOS = path.join(PASTA_DADOS, 'agendamentos.json');
 const ARQ_BARBEIROS = path.join(PASTA_DADOS, 'barbeiros.json');
 const ARQ_SERVICOS = path.join(PASTA_DADOS, 'servicos.json');
+const ARQ_CONFIGURACAO = path.join(PASTA_DADOS, 'configuracao.json');
 const PASTA_PUBLIC = path.join(__dirname, 'public');
 
 // ---------- Configuração de e-mail (opcional) ----------
@@ -39,21 +40,10 @@ function pedirSenhaAdmin(res) {
   res.end('Acesso negado');
 }
 
-async function enviarEmailConfirmacao(agendamento) {
-  const assunto = 'Agendamento confirmado - Navalha de Ouro';
-  const corpo = `
-    Agendamento realizado com sucesso!
-
-    Cliente: ${agendamento.cliente}
-    Barbeiro: ${agendamento.barbeiro}
-    Serviço: ${agendamento.servico}
-    Data: ${agendamento.data}
-    Horário: ${agendamento.hora}
-  `;
-
+async function enviarEmail(destinatario, assunto, corpo) {
   if (!RESEND_API_KEY) {
     console.log('--- E-mail NÃO enviado (RESEND_API_KEY não configurada) ---');
-    console.log(`Para: ${agendamento.email}`);
+    console.log(`Para: ${destinatario}`);
     console.log(corpo);
     console.log('-----------------------------------------------------------');
     return;
@@ -68,7 +58,7 @@ async function enviarEmailConfirmacao(agendamento) {
       },
       body: JSON.stringify({
         from: EMAIL_REMETENTE,
-        to: agendamento.email,
+        to: destinatario,
         subject: assunto,
         text: corpo
       })
@@ -79,6 +69,38 @@ async function enviarEmailConfirmacao(agendamento) {
   } catch (erro) {
     console.error('Erro ao enviar e-mail:', erro.message);
   }
+}
+
+async function enviarEmailConfirmacao(agendamento) {
+  const corpo = `
+    Agendamento realizado com sucesso!
+
+    Cliente: ${agendamento.cliente}
+    Barbeiro: ${agendamento.barbeiro}
+    Serviço: ${agendamento.servico}
+    Data: ${agendamento.data}
+    Horário: ${agendamento.hora}
+  `;
+  await enviarEmail(agendamento.email, 'Agendamento confirmado - Navalha de Ouro', corpo);
+}
+
+// E-mail que recebe aviso de todo agendamento novo (dono/barbearia).
+// Configure no Render: EMAIL_AVISO_BARBEARIA.
+const EMAIL_AVISO_BARBEARIA = process.env.EMAIL_AVISO_BARBEARIA || '';
+
+async function enviarAvisoBarbearia(agendamento) {
+  if (!EMAIL_AVISO_BARBEARIA) return;
+  const corpo = `
+    Novo agendamento na Navalha de Ouro!
+
+    Cliente: ${agendamento.cliente}
+    Telefone: ${agendamento.telefone || 'não informado'}
+    Barbeiro: ${agendamento.barbeiro}
+    Serviço: ${agendamento.servico}
+    Data: ${agendamento.data}
+    Horário: ${agendamento.hora}
+  `;
+  await enviarEmail(EMAIL_AVISO_BARBEARIA, `Novo agendamento: ${agendamento.cliente} - ${agendamento.data} ${agendamento.hora}`, corpo);
 }
 
 // ---------- Funções de leitura/gravação (mesmo padrão do produtos.json) ----------
@@ -98,6 +120,9 @@ function garantirArquivos() {
       { nome: 'Corte + Barba', duracao: 45, preco: 55 },
       { nome: 'Sobrancelha', duracao: 10, preco: 15 }
     ], null, 2));
+  }
+  if (!fs.existsSync(ARQ_CONFIGURACAO)) {
+    fs.writeFileSync(ARQ_CONFIGURACAO, JSON.stringify({ diasFechados: [0] }, null, 2)); // 0 = domingo
   }
 }
 
@@ -199,6 +224,9 @@ const servidor = http.createServer(async (req, res) => {
   }
   if (req.method === 'GET' && rota === '/api/servicos') {
     return responderJSON(res, 200, lerJSON(ARQ_SERVICOS));
+  }
+  if (req.method === 'GET' && rota === '/api/configuracao') {
+    return responderJSON(res, 200, lerJSON(ARQ_CONFIGURACAO));
   }
 
   // API: cadastrar barbeiro
@@ -312,6 +340,7 @@ const servidor = http.createServer(async (req, res) => {
       if (novoAgendamento.email) {
         enviarEmailConfirmacao(novoAgendamento); // não precisa esperar terminar pra responder
       }
+      enviarAvisoBarbearia(novoAgendamento); // avisa a barbearia de todo agendamento novo
 
       return responderJSON(res, 201, novoAgendamento);
     } catch (erro) {
