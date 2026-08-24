@@ -1,3 +1,6 @@
 {
-  "diasFechados": [0]
+  "diasFechados": [0],
+  "horarioAbertura": "09:00",
+  "horarioFechamento": "19:30",
+  "intervaloMinutos": 30
 }
