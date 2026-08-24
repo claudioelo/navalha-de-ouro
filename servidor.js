@@ -18,7 +18,26 @@ const PASTA_PUBLIC = path.join(__dirname, 'public');
 // pegue sua API key e cole abaixo. Enquanto RESEND_API_KEY estiver vazio,
 // o sistema só mostra no console o que teria sido enviado (não dá erro, só não manda de verdade).
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
-const EMAIL_REMETENTE = 'onboarding@resend.dev'; // troque depois de configurar o Resend
+const EMAIL_REMETENTE = 'onboarding@resend.dev';
+
+// ---------- Proteção da área de admin ----------
+// No Render, configure ADMIN_USUARIO e ADMIN_SENHA em Environment.
+// Enquanto não configurar, usa esses valores padrão (troque antes de divulgar o site!).
+const ADMIN_USUARIO = process.env.ADMIN_USUARIO || 'admin';
+const ADMIN_SENHA = process.env.ADMIN_SENHA || 'troque-essa-senha';
+
+function verificarSenhaAdmin(req) {
+  const cabecalho = req.headers['authorization'];
+  if (!cabecalho) return false;
+  const credenciais = Buffer.from(cabecalho.split(' ')[1], 'base64').toString();
+  const [usuario, senha] = credenciais.split(':');
+  return usuario === ADMIN_USUARIO && senha === ADMIN_SENHA;
+}
+
+function pedirSenhaAdmin(res) {
+  res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Admin Navalha de Ouro"' });
+  res.end('Acesso negado');
+}
 
 async function enviarEmailConfirmacao(agendamento) {
   const assunto = 'Agendamento confirmado - Navalha de Ouro';
@@ -168,8 +187,9 @@ const servidor = http.createServer(async (req, res) => {
     return servirArquivoEstatico(res, path.join(PASTA_PUBLIC, 'estilo.css'));
   }
 
-  // Página de admin
+  // Página de admin (protegida por senha)
   if (req.method === 'GET' && rota === '/admin') {
+    if (!verificarSenhaAdmin(req)) return pedirSenhaAdmin(res);
     return servirArquivoEstatico(res, path.join(PASTA_PUBLIC, 'admin.html'));
   }
 
@@ -183,6 +203,7 @@ const servidor = http.createServer(async (req, res) => {
 
   // API: cadastrar barbeiro
   if (req.method === 'POST' && rota === '/api/barbeiros') {
+    if (!verificarSenhaAdmin(req)) return responderJSON(res, 401, { erro: 'Acesso negado.' });
     try {
       const dados = await lerCorpo(req);
       const nome = (dados.nome || '').trim();
@@ -202,6 +223,7 @@ const servidor = http.createServer(async (req, res) => {
 
   // API: remover barbeiro
   if (req.method === 'DELETE' && rota.startsWith('/api/barbeiros/')) {
+    if (!verificarSenhaAdmin(req)) return responderJSON(res, 401, { erro: 'Acesso negado.' });
     const nome = decodeURIComponent(rota.split('/').pop());
     let barbeiros = lerJSON(ARQ_BARBEIROS);
     barbeiros = barbeiros.filter((b) => b !== nome);
@@ -211,6 +233,7 @@ const servidor = http.createServer(async (req, res) => {
 
   // API: cadastrar serviço
   if (req.method === 'POST' && rota === '/api/servicos') {
+    if (!verificarSenhaAdmin(req)) return responderJSON(res, 401, { erro: 'Acesso negado.' });
     try {
       const dados = await lerCorpo(req);
       const nome = (dados.nome || '').trim();
@@ -235,6 +258,7 @@ const servidor = http.createServer(async (req, res) => {
 
   // API: remover serviço
   if (req.method === 'DELETE' && rota.startsWith('/api/servicos/')) {
+    if (!verificarSenhaAdmin(req)) return responderJSON(res, 401, { erro: 'Acesso negado.' });
     const nome = decodeURIComponent(rota.split('/').pop());
     let servicos = lerJSON(ARQ_SERVICOS);
     servicos = servicos.filter((s) => s.nome !== nome);
