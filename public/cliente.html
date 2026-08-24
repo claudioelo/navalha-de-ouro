@@ -58,9 +58,12 @@
                     </div>
                     <input type="hidden" id="data" required>
                 </div>
-                <div>
-                    <label for="hora">Horário</label>
-                    <input type="time" id="hora" required>
+                <div class="full">
+                    <label>Horário</label>
+                    <div id="gradeHorarios" class="grade-horarios">
+                        <p class="vazio" style="padding:0;">Escolha barbeiro, serviço e data primeiro.</p>
+                    </div>
+                    <input type="hidden" id="hora" required>
                 </div>
                 <div class="msg" id="msgForm"></div>
                 <button type="submit" class="btn-primary">Confirmar agendamento</button>
@@ -77,6 +80,9 @@
 
         let servicos = [];
         let diasFechados = [];
+        let horarioAbertura = '09:00';
+        let horarioFechamento = '19:30';
+        let intervaloMinutos = 30;
         let mesAtual = new Date();
         mesAtual.setDate(1);
 
@@ -123,12 +129,89 @@
                     botao.addEventListener('click', () => {
                         inputData.value = formatarDataLocal(dataDia);
                         renderCalendario();
+                        renderGradeHorarios();
                     });
                 } else {
                     botao.disabled = true;
                 }
 
                 container.appendChild(botao);
+            }
+        }
+
+        function minutosParaHora(min) {
+            const h = String(Math.floor(min / 60)).padStart(2, '0');
+            const m = String(min % 60).padStart(2, '0');
+            return `${h}:${m}`;
+        }
+
+        function horaParaMinutos(hora) {
+            const [h, m] = hora.split(':').map(Number);
+            return h * 60 + m;
+        }
+
+        async function renderGradeHorarios() {
+            const gradeHorarios = document.getElementById('gradeHorarios');
+            const hora = document.getElementById('hora');
+            hora.value = '';
+
+            if (!inputData.value || !selectBarbeiro.value || !selectServico.value) {
+                gradeHorarios.innerHTML = '<p class="vazio" style="padding:0;">Escolha barbeiro, serviço e data primeiro.</p>';
+                return;
+            }
+
+            gradeHorarios.innerHTML = '<p class="vazio" style="padding:0;">Carregando horários...</p>';
+
+            const servicoEscolhido = servicos.find(s => s.nome === selectServico.value);
+            const duracao = servicoEscolhido ? servicoEscolhido.duracao : 30;
+
+            const ocupados = await fetch(`/api/agendamentos?barbeiro=${encodeURIComponent(selectBarbeiro.value)}&data=${inputData.value}`)
+                .then(r => r.json());
+
+            const inicioMin = horaParaMinutos(horarioAbertura);
+            const fimMin = horaParaMinutos(horarioFechamento);
+            const hoje = new Date();
+            const dataEscolhidaEhHoje = inputData.value === formatarDataLocal(hoje);
+
+            gradeHorarios.innerHTML = '';
+            let algumDisponivel = false;
+
+            for (let min = inicioMin; min <= fimMin; min += intervaloMinutos) {
+                const horaTexto = minutosParaHora(min);
+                const fimSlot = min + duracao;
+
+                const conflita = ocupados.some(ag => {
+                    const inicioAg = horaParaMinutos(ag.hora);
+                    const fimAg = inicioAg + ag.duracao;
+                    return min < fimAg && fimSlot > inicioAg;
+                });
+
+                const passouDoHorario = dataEscolhidaEhHoje && min <= (hoje.getHours() * 60 + hoje.getMinutes());
+                const ultrapassaFechamento = fimSlot > fimMin;
+                const indisponivel = conflita || passouDoHorario || ultrapassaFechamento;
+
+                if (!indisponivel) algumDisponivel = true;
+
+                const botao = document.createElement('button');
+                botao.type = 'button';
+                botao.textContent = horaTexto;
+                botao.className = 'horario-botao' + (indisponivel ? ' indisponivel' : '');
+                if (hora.value === horaTexto) botao.classList.add('selecionado');
+
+                if (!indisponivel) {
+                    botao.addEventListener('click', () => {
+                        hora.value = horaTexto;
+                        renderGradeHorarios();
+                    });
+                } else {
+                    botao.disabled = true;
+                }
+
+                gradeHorarios.appendChild(botao);
+            }
+
+            if (!algumDisponivel) {
+                gradeHorarios.innerHTML = '<p class="vazio" style="padding:0;">Nenhum horário disponível nesse dia.</p>';
             }
         }
 
@@ -149,10 +232,17 @@
             ]);
             servicos = servs;
             diasFechados = config.diasFechados || [];
+            horarioAbertura = config.horarioAbertura || '09:00';
+            horarioFechamento = config.horarioFechamento || '19:30';
+            intervaloMinutos = config.intervaloMinutos || 30;
             selectBarbeiro.innerHTML = barbeiros.map(b => `<option value="${b}">${b}</option>`).join('');
             selectServico.innerHTML = servs.map(s => `<option value="${s.nome}">${s.nome} — ${s.duracao}min — R$${s.preco}</option>`).join('');
             renderCalendario();
+            renderGradeHorarios();
         }
+
+        selectBarbeiro.addEventListener('change', renderGradeHorarios);
+        selectServico.addEventListener('change', renderGradeHorarios);
 
         formAgendamento.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -162,6 +252,11 @@
             if (!inputData.value) {
                 msgForm.className = 'msg erro';
                 msgForm.textContent = 'Escolha uma data no calendário.';
+                return;
+            }
+            if (!document.getElementById('hora').value) {
+                msgForm.className = 'msg erro';
+                msgForm.textContent = 'Escolha um horário disponível.';
                 return;
             }
 
@@ -194,6 +289,7 @@
                 formAgendamento.reset();
                 inputData.value = '';
                 renderCalendario();
+                renderGradeHorarios();
             } catch (erro) {
                 msgForm.className = 'msg erro';
                 msgForm.textContent = 'Erro ao conectar com o servidor. Tente de novo.';
