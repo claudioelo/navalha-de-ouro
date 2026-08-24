@@ -1,3 +1,4 @@
+
 // servidor.js
 // Servidor da Navalha de Ouro - agendamentos
 // Usa só módulos nativos do Node (http, fs, path) - sem precisar instalar nada com npm
@@ -122,7 +123,12 @@ function garantirArquivos() {
     ], null, 2));
   }
   if (!fs.existsSync(ARQ_CONFIGURACAO)) {
-    fs.writeFileSync(ARQ_CONFIGURACAO, JSON.stringify({ diasFechados: [0] }, null, 2)); // 0 = domingo
+    fs.writeFileSync(ARQ_CONFIGURACAO, JSON.stringify({
+      diasFechados: [0], // 0 = domingo
+      horarioAbertura: '09:00',
+      horarioFechamento: '19:30',
+      intervaloMinutos: 30
+    }, null, 2));
   }
 }
 
