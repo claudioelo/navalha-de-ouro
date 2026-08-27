@@ -196,12 +196,13 @@
                 botao.type = 'button';
                 botao.textContent = horaTexto;
                 botao.className = 'horario-botao' + (indisponivel ? ' indisponivel' : '');
-                if (hora.value === horaTexto) botao.classList.add('selecionado');
+                botao.dataset.hora = horaTexto;
 
                 if (!indisponivel) {
                     botao.addEventListener('click', () => {
                         hora.value = horaTexto;
-                        renderGradeHorarios();
+                        gradeHorarios.querySelectorAll('.horario-botao').forEach(b => b.classList.remove('selecionado'));
+                        botao.classList.add('selecionado');
                     });
                 } else {
                     botao.disabled = true;
