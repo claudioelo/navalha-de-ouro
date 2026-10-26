@@ -1,0 +1,16 @@
+{
+  "name": "navalha-de-ouro",
+  "version": "1.0.0",
+  "description": "Sistema de agendamento da Navalha de Ouro",
+  "main": "servidor.js",
+  "scripts": {
+    "start": "node servidor.js",
+    "dev": "node --env-file=.env servidor.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  }
+}
