@@ -251,7 +251,7 @@ tr:hover td {
     text-align: center;
     font-size: 11px;
     opacity: 0.5;
-    margin-top: -8px;
+    margin-top: 12px;
 }
 
 @media (max-width: 560px) {
