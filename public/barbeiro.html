@@ -23,8 +23,44 @@
         <!-- Barrinha de quem está logado + trocar senha -->
         <div class="barra-usuario" id="barraUsuario" hidden>
             <span>Logado como <strong id="nomeLogado"></strong></span>
-            <button type="button" class="btn-desfazer" id="btnTrocarSenha" hidden>trocar minha senha</button>
+            <span class="acoes">
+                <button type="button" class="btn-atendido" id="btnNovo">+ novo agendamento</button>
+                <button type="button" class="btn-desfazer" id="btnTrocarSenha" hidden>trocar minha senha</button>
+            </span>
         </div>
+
+        <!-- Agendamento na hora (cliente que chegou no balcão ou ligou) -->
+        <section class="card" id="cardNovo" hidden>
+            <h2>Novo agendamento</h2>
+            <form id="formNovo">
+                <div>
+                    <label for="novoCliente">Nome do cliente</label>
+                    <input type="text" id="novoCliente" required minlength="2" maxlength="60">
+                </div>
+                <div>
+                    <label for="novoTelefone">Telefone (opcional)</label>
+                    <input type="tel" id="novoTelefone" maxlength="20" placeholder="(43) 90000-0000">
+                </div>
+                <div id="campoNovoBarbeiro">
+                    <label for="novoBarbeiro">Barbeiro</label>
+                    <select id="novoBarbeiro"></select>
+                </div>
+                <div>
+                    <label for="novoServico">Serviço</label>
+                    <select id="novoServico"></select>
+                </div>
+                <div>
+                    <label for="novoData">Dia</label>
+                    <input type="date" id="novoData" required>
+                </div>
+                <div>
+                    <label for="novoHora">Horário</label>
+                    <select id="novoHora" required></select>
+                </div>
+                <div class="msg" id="msgNovo"></div>
+                <button type="submit" class="btn-primary">Confirmar agendamento</button>
+            </form>
+        </section>
 
         <section class="card" id="cardSenha" hidden>
             <h2>Trocar minha senha</h2>
@@ -138,7 +174,7 @@
               <tr class="linha-${esc(a.status)}">
                 <td>${esc(formatarData(a.data))}</td>
                 <td>${esc(a.hora)}</td>
-                <td>${esc(a.cliente)}</td>
+                <td>${esc(a.cliente)}${a.origem === 'balcao' ? ' <span class="tag">balcão</span>' : ''}</td>
                 <td>${esc(a.telefone) || '—'}</td>
                 <td>${esc(a.barbeiro)}</td>
                 <td>${esc(a.servico)}</td>
@@ -179,6 +215,7 @@
             const resposta = await fetch('/api/eu');
             if (!resposta.ok) return;
             const eu = await resposta.json();
+            usuario = eu;
 
             const nomes = { admin: 'Administrador', recepcao: 'Recepção' };
             document.getElementById('nomeLogado').textContent = eu.tipo === 'barbeiro' ? eu.nome : nomes[eu.tipo];
@@ -190,6 +227,156 @@
                 document.getElementById('btnTrocarSenha').hidden = false;
             }
         }
+
+        // ---------- Agendamento na hora ----------
+        let usuario = null;   // quem está logado (preenchido em carregarUsuario)
+        let servicos = [];
+        let config = {};
+
+        // Data de hoje no formato do input (2026-11-05), pelo relógio do celular/PC
+        function hojeISO() {
+            const d = new Date();
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+
+        function horaParaMinutos(hora) {
+            const [h, m] = hora.split(':').map(Number);
+            return h * 60 + m;
+        }
+
+        function minutosParaHora(min) {
+            return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+        }
+
+        async function prepararNovoAgendamento() {
+            const [servs, conf, barbeiros] = await Promise.all([
+                fetch('/api/servicos').then(r => r.json()),
+                fetch('/api/configuracao').then(r => r.json()),
+                fetch('/api/barbeiros').then(r => r.json())
+            ]);
+            servicos = servs;
+            config = conf;
+
+            document.getElementById('novoServico').innerHTML = servs.map(s =>
+                `<option value="${esc(s.nome)}">${esc(s.nome)} — ${esc(s.duracao)}min — R$${esc(s.preco)}</option>`).join('');
+
+            // Barbeiro marca só pra ele; recepção/admin escolhem
+            const selectBarbeiro = document.getElementById('novoBarbeiro');
+            if (usuario?.tipo === 'barbeiro') {
+                selectBarbeiro.innerHTML = `<option value="${esc(usuario.nome)}">${esc(usuario.nome)}</option>`;
+                document.getElementById('campoNovoBarbeiro').hidden = true;
+            } else {
+                selectBarbeiro.innerHTML = barbeiros.map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('');
+            }
+
+            const inputData = document.getElementById('novoData');
+            inputData.min = hojeISO();
+            const limite = new Date();
+            limite.setDate(limite.getDate() + (conf.diasAntecedenciaMaxima || 60));
+            inputData.max = `${limite.getFullYear()}-${String(limite.getMonth() + 1).padStart(2, '0')}-${String(limite.getDate()).padStart(2, '0')}`;
+            if (!inputData.value) inputData.value = hojeISO();
+
+            await montarHorarios();
+        }
+
+        // Lista só os horários livres do barbeiro naquele dia
+        async function montarHorarios() {
+            const selectHora = document.getElementById('novoHora');
+            const barbeiro = document.getElementById('novoBarbeiro').value;
+            const data = document.getElementById('novoData').value;
+            const servico = servicos.find(s => s.nome === document.getElementById('novoServico').value);
+            if (!barbeiro || !data || !servico) {
+                selectHora.innerHTML = '';
+                return;
+            }
+
+            const diaDaSemana = new Date(`${data}T12:00:00`).getDay();
+            if ((config.diasFechados || []).includes(diaDaSemana)) {
+                selectHora.innerHTML = '<option value="">Fechado nesse dia</option>';
+                return;
+            }
+
+            const ocupados = await fetch(`/api/agendamentos?barbeiro=${encodeURIComponent(barbeiro)}&data=${data}`).then(r => r.json());
+            const abertura = horaParaMinutos(config.horarioAbertura || '09:00');
+            const fechamento = horaParaMinutos(config.horarioFechamento || '19:30');
+            const intervalo = config.intervaloMinutos || 30;
+            const agora = new Date();
+            const agoraMin = agora.getHours() * 60 + agora.getMinutes();
+            const ehHoje = data === hojeISO();
+
+            const opcoes = [];
+            let sugerido = null;
+            for (let min = abertura; min + servico.duracao <= fechamento; min += intervalo) {
+                const conflita = ocupados.some(ag => {
+                    const inicio = horaParaMinutos(ag.hora);
+                    return min < inicio + ag.duracao && min + servico.duracao > inicio;
+                });
+                if (conflita) continue;
+                const jaPassou = ehHoje && min + intervalo <= agoraMin; // esse horário inteiro já acabou
+                if (!jaPassou && sugerido === null) sugerido = min;    // o mais próximo de agora
+                const texto = minutosParaHora(min);
+                opcoes.push(`<option value="${texto}">${texto}${jaPassou ? ' (já passou)' : ''}</option>`);
+            }
+
+            if (!opcoes.length) {
+                selectHora.innerHTML = '<option value="">Nenhum horário livre</option>';
+            } else if (sugerido !== null) {
+                selectHora.innerHTML = opcoes.join('');
+                selectHora.value = minutosParaHora(sugerido); // já deixa o mais próximo de agora
+            } else {
+                // Todos os horários do dia já passaram: obriga a escolher (pra ninguém marcar sem querer)
+                selectHora.innerHTML = '<option value="">Escolha o horário</option>' + opcoes.join('');
+            }
+        }
+
+        ['novoBarbeiro', 'novoServico', 'novoData'].forEach(id =>
+            document.getElementById(id).addEventListener('change', montarHorarios));
+
+        document.getElementById('btnNovo').addEventListener('click', async () => {
+            const card = document.getElementById('cardNovo');
+            card.hidden = !card.hidden;
+            if (!card.hidden) {
+                await prepararNovoAgendamento();
+                document.getElementById('novoCliente').focus();
+            }
+        });
+
+        document.getElementById('formNovo').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const msg = document.getElementById('msgNovo');
+            const hora = document.getElementById('novoHora').value;
+            if (!hora) {
+                msg.className = 'msg erro';
+                msg.textContent = 'Escolha um horário livre.';
+                return;
+            }
+
+            const resposta = await fetch('/api/agendamentos', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    cliente: document.getElementById('novoCliente').value.trim(),
+                    telefone: document.getElementById('novoTelefone').value.trim(),
+                    barbeiro: document.getElementById('novoBarbeiro').value,
+                    servico: document.getElementById('novoServico').value,
+                    data: document.getElementById('novoData').value,
+                    hora
+                })
+            });
+            const dados = await resposta.json().catch(() => ({}));
+            if (!resposta.ok) {
+                msg.className = 'msg erro';
+                msg.textContent = dados.erro || 'Não deu pra agendar.';
+                return;
+            }
+
+            msg.className = 'msg sucesso';
+            msg.textContent = `Agendado: ${dados.cliente} — ${formatarData(dados.data)} às ${dados.hora} com ${dados.barbeiro}.`;
+            document.getElementById('novoCliente').value = '';
+            document.getElementById('novoTelefone').value = '';
+            await montarHorarios();
+            carregarAgenda();
+        });
 
         // ---------- Trocar a própria senha ----------
         document.getElementById('btnTrocarSenha').addEventListener('click', () => {

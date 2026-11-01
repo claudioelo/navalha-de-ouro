@@ -81,6 +81,15 @@ Cada barbeiro  -> o NOME dele + a senha que o dono definiu no /admin ("dar acess
                   ou "remover" (some da lista de agendamento).
 
 
+AGENDAMENTO NO BALCÃO (cliente que chegou ou ligou)
+-----------------------------------------------------
+No /barbeiro, botão "+ novo agendamento".
+- Barbeiro marca só na agenda dele; recepção e dono escolhem o barbeiro
+- Já vem com o dia de hoje e o horário livre mais próximo de agora
+- Pode marcar no horário que já começou hoje (cliente chegou 10:05 -> horário das 10:00)
+- Na agenda aparece a etiqueta "balcão" (os do site não têm etiqueta)
+
+
 CONFIGURAÇÃO DA AGENDA (dados/configuracao.json)
 --------------------------------------------------
 diasFechados            -> dias que não abre (0 = domingo, 1 = segunda ... 6 = sábado)

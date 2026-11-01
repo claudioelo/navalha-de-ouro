@@ -239,6 +239,9 @@ async function prepararBanco() {
   // Em vez de apagar, agora a gente só muda o status - assim fica o histórico.
   await banco.query(`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'agendado'`);
 
+  // Coluna nova: de onde veio o agendamento ('site' = cliente agendou, 'balcao' = barbeiro/recepção marcou)
+  await banco.query(`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS origem TEXT NOT NULL DEFAULT 'site'`);
+
   // Coluna nova: senha de cada barbeiro (embaralhada). Vazia = barbeiro sem acesso ao /barbeiro.
   await banco.query(`ALTER TABLE barbeiros ADD COLUMN IF NOT EXISTS senha_hash TEXT`);
 
@@ -296,7 +299,8 @@ function diasAte(dataHoje, data) {
 // ---------- Validação do agendamento ----------
 // O servidor NÃO confia no que a página manda: confere tudo de novo aqui.
 // Devolve a mensagem de erro, ou null se estiver tudo certo.
-async function validarAgendamento(dados) {
+// "quem" = quem está logado (null pro cliente comum do site)
+async function validarAgendamento(dados, quem) {
   const texto = (valor) => (typeof valor === 'string' ? valor.trim() : '');
   const cliente = texto(dados.cliente);
   const telefone = texto(dados.telefone);
@@ -318,6 +322,11 @@ async function validarAgendamento(dados) {
   }
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) return 'Horário inválido.';
 
+  // Barbeiro logado só marca horário na agenda DELE
+  if (quem?.tipo === 'barbeiro' && dados.barbeiro !== quem.nome) {
+    return 'Você só pode marcar horário na sua própria agenda.';
+  }
+
   // Barbeiro e serviço precisam existir no banco
   const { rows: barbeiros } = await banco.query('SELECT 1 FROM barbeiros WHERE nome = $1', [dados.barbeiro]);
   if (!barbeiros.length) return 'Barbeiro não encontrado.';
@@ -336,7 +345,11 @@ async function validarAgendamento(dados) {
   const dias = diasAte(agora.data, data);
   const diaDaSemana = new Date(`${data}T12:00:00Z`).getUTCDay(); // 0 = domingo
 
-  if (dias < 0 || (dias === 0 && inicio <= agora.minutos)) return 'Esse horário já passou.';
+  // Cliente do site: só horários que ainda não começaram.
+  // Barbeiro/recepção/admin (agendamento no balcão): pode marcar no horário que já começou hoje,
+  // tipo o cliente que chegou 10:05 e vai ser atendido no horário das 10:00.
+  if (dias < 0) return 'Esse dia já passou.';
+  if (dias === 0 && inicio <= agora.minutos && !quem) return 'Esse horário já passou.';
   if (dias > antecedenciaMaxima) return `Só dá pra agendar com até ${antecedenciaMaxima} dias de antecedência.`;
   if ((config.diasFechados || []).includes(diaDaSemana)) return 'A barbearia não abre nesse dia.';
   if (inicio < abertura || inicio + servico.duracao > fechamento || (inicio - abertura) % intervalo !== 0) {
@@ -671,7 +684,7 @@ async function tratarRequisicao(req, res) {
     const where = condicoes.length ? `WHERE ${condicoes.join(' AND ')}` : '';
 
     const colunas = temLogin
-      ? 'id, cliente, telefone, email, barbeiro, servico, duracao, preco, data, hora, status'
+      ? 'id, cliente, telefone, email, barbeiro, servico, duracao, preco, data, hora, status, origem'
       : 'barbeiro, data, hora, duracao'; // só o necessário pra riscar os horários ocupados
 
     const { rows } = await banco.query(
@@ -693,7 +706,7 @@ async function tratarRequisicao(req, res) {
     const conexao = await banco.connect();
     try {
       const dados = await lerCorpo(req);
-      const erro = await validarAgendamento(dados);
+      const erro = await validarAgendamento(dados, req.quem);
       if (erro) return responderJSON(res, 400, { erro });
 
       const { rows: achados } = await banco.query('SELECT * FROM servicos WHERE nome = $1', [dados.servico]);
@@ -722,12 +735,13 @@ async function tratarRequisicao(req, res) {
       }
 
       const { rows: inseridos } = await conexao.query(
-        `INSERT INTO agendamentos (cliente, telefone, email, barbeiro, servico, duracao, preco, data, hora)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+        `INSERT INTO agendamentos (cliente, telefone, email, barbeiro, servico, duracao, preco, data, hora, origem)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
         [
           novoAgendamento.cliente, novoAgendamento.telefone, novoAgendamento.email,
           novoAgendamento.barbeiro, novoAgendamento.servico, novoAgendamento.duracao,
-          novoAgendamento.preco, novoAgendamento.data, novoAgendamento.hora
+          novoAgendamento.preco, novoAgendamento.data, novoAgendamento.hora,
+          req.quem ? 'balcao' : 'site'
         ]
       );
       await conexao.query('COMMIT');
