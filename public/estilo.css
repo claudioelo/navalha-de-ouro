@@ -302,6 +302,58 @@ tr:hover td {
     text-decoration: line-through;
 }
 
+/* Garante que tudo com "hidden" fique escondido mesmo (alguns estilos acima usam display) */
+[hidden] {
+    display: none !important;
+}
+
+/* ---------- Login individual ---------- */
+.barra-usuario {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 14px;
+}
+
+.barra-usuario strong {
+    color: var(--gold);
+}
+
+.dica {
+    font-size: 12px;
+    opacity: 0.6;
+    margin: 4px 0 0;
+}
+
+.item-barbeiro {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 8px;
+}
+
+.item-linha {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.item-linha .status {
+    margin-left: 6px;
+}
+
+.form-senha {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.form-senha[hidden] {
+    display: none;
+}
+
 /* No celular a tabela rola de lado dentro do quadro, em vez de vazar da tela */
 #tabelaWrap {
     overflow-x: auto;

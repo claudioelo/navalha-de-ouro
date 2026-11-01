@@ -23,12 +23,19 @@
         <section class="card">
             <h2>Barbeiros</h2>
             <form id="formBarbeiro">
-                <div class="full">
+                <div>
                     <label for="novoBarbeiro">Nome do barbeiro</label>
-                    <input type="text" id="novoBarbeiro" required>
+                    <input type="text" id="novoBarbeiro" required maxlength="40">
+                </div>
+                <div>
+                    <label for="novaSenhaBarbeiro">Senha inicial (opcional)</label>
+                    <input type="password" id="novaSenhaBarbeiro" maxlength="50" autocomplete="new-password"
+                        placeholder="mín. 6, sem acento">
                 </div>
                 <button type="submit" class="btn-primary">Adicionar barbeiro</button>
             </form>
+            <p class="dica">O <strong>nome</strong> do barbeiro é o login dele no /barbeiro. Ele pode trocar a senha
+                depois, lá dentro.</p>
             <div id="listaBarbeiros" style="margin-top:16px; display:grid; gap:8px;"></div>
         </section>
 
@@ -66,21 +73,75 @@
                 .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
+        // Cada barbeiro: nome, se tem acesso ao /barbeiro, e os botões
         function renderBarbeiros(barbeiros) {
-            listaBarbeiros.innerHTML = barbeiros.map(b =>
-                `<div style="display:flex;justify-content:space-between;align-items:center;">
-          <span>${esc(b)}</span>
-          <button data-nome="${esc(b)}" class="removerBarbeiro btn-cancelar">remover</button>
+            listaBarbeiros.innerHTML = barbeiros.map(b => `
+        <div class="item-barbeiro">
+          <div class="item-linha">
+            <span>${esc(b.nome)}
+              <span class="status ${b.temAcesso ? 'status-atendido' : 'status-cancelado'}">${b.temAcesso ? 'com acesso' : 'sem acesso'}</span>
+            </span>
+            <span class="acoes">
+              <button type="button" class="btn-atendido abrirSenha">${b.temAcesso ? 'trocar senha' : 'dar acesso'}</button>
+              ${b.temAcesso ? `<button type="button" class="btn-desfazer tirarAcesso" data-nome="${esc(b.nome)}">tirar acesso</button>` : ''}
+              <button type="button" data-nome="${esc(b.nome)}" class="removerBarbeiro btn-cancelar">remover</button>
+            </span>
+          </div>
+          <form class="form-senha" data-nome="${esc(b.nome)}" hidden>
+            <input type="password" maxlength="50" autocomplete="new-password" placeholder="Nova senha (mín. 6, sem acento)" required>
+            <button type="submit" class="btn-atendido">salvar</button>
+          </form>
         </div>`
             ).join('') || '<p class="vazio" style="padding:0;">Nenhum barbeiro cadastrado</p>';
 
+            // "dar acesso" / "trocar senha": mostra o campinho de senha embaixo do nome
+            listaBarbeiros.querySelectorAll('.abrirSenha').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const form = btn.closest('.item-barbeiro').querySelector('.form-senha');
+                    form.hidden = !form.hidden;
+                    if (!form.hidden) form.querySelector('input').focus();
+                });
+            });
+
+            listaBarbeiros.querySelectorAll('.form-senha').forEach(form => {
+                form.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const senha = form.querySelector('input').value;
+                    const ok = await mudarSenha(form.dataset.nome, senha);
+                    if (ok) alert(`Senha de ${form.dataset.nome} salva! Login: ${form.dataset.nome}`);
+                });
+            });
+
+            listaBarbeiros.querySelectorAll('.tirarAcesso').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    if (!confirm(`Tirar o acesso de ${btn.dataset.nome}? Ele continua aparecendo pros clientes, mas não entra mais no /barbeiro.`)) return;
+                    await mudarSenha(btn.dataset.nome, null);
+                });
+            });
+
             listaBarbeiros.querySelectorAll('.removerBarbeiro').forEach(btn => {
                 btn.addEventListener('click', async () => {
-                    if (!confirm(`Remover o barbeiro ${btn.dataset.nome}?`)) return;
+                    if (!confirm(`Remover o barbeiro ${btn.dataset.nome}? Ele some da lista de agendamento.`)) return;
                     await fetch(`/api/barbeiros/${encodeURIComponent(btn.dataset.nome)}`, { method: 'DELETE' });
                     carregarBarbeiros();
                 });
             });
+        }
+
+        // senha = texto pra definir, ou null pra tirar o acesso
+        async function mudarSenha(nome, senha) {
+            const resposta = await fetch(`/api/barbeiros/${encodeURIComponent(nome)}/senha`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ senha })
+            });
+            if (!resposta.ok) {
+                const erro = await resposta.json().catch(() => ({}));
+                alert(erro.erro || 'Não deu pra salvar a senha.');
+                return false;
+            }
+            carregarBarbeiros();
+            return true;
         }
 
         function renderServicos(servicos) {
@@ -101,7 +162,7 @@
         }
 
         async function carregarBarbeiros() {
-            const barbeiros = await fetch('/api/barbeiros').then(r => r.json());
+            const barbeiros = await fetch('/api/barbeiros/acessos').then(r => r.json());
             renderBarbeiros(barbeiros);
         }
 
@@ -113,16 +174,18 @@
         formBarbeiro.addEventListener('submit', async (e) => {
             e.preventDefault();
             const input = document.getElementById('novoBarbeiro');
+            const inputSenha = document.getElementById('novaSenhaBarbeiro');
             const nome = input.value.trim();
             if (!nome) return;
 
             const resposta = await fetch('/api/barbeiros', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ nome })
+                body: JSON.stringify({ nome, senha: inputSenha.value })
             });
             if (resposta.ok) {
                 input.value = '';
+                inputSenha.value = '';
                 carregarBarbeiros();
             } else {
                 const erro = await resposta.json();

@@ -20,10 +20,38 @@
     </header>
 
     <main>
+        <!-- Barrinha de quem está logado + trocar senha -->
+        <div class="barra-usuario" id="barraUsuario" hidden>
+            <span>Logado como <strong id="nomeLogado"></strong></span>
+            <button type="button" class="btn-desfazer" id="btnTrocarSenha" hidden>trocar minha senha</button>
+        </div>
+
+        <section class="card" id="cardSenha" hidden>
+            <h2>Trocar minha senha</h2>
+            <form id="formSenha">
+                <div class="full">
+                    <label for="senhaAtual">Senha atual</label>
+                    <input type="password" id="senhaAtual" required autocomplete="current-password">
+                </div>
+                <div>
+                    <label for="senhaNova">Nova senha</label>
+                    <input type="password" id="senhaNova" required minlength="6" maxlength="50" autocomplete="new-password">
+                </div>
+                <div>
+                    <label for="senhaConfirma">Repetir nova senha</label>
+                    <input type="password" id="senhaConfirma" required minlength="6" maxlength="50" autocomplete="new-password">
+                </div>
+                <p class="dica full">Mínimo 6 caracteres, sem espaço e sem acento. Depois de trocar, o navegador vai
+                    pedir pra entrar de novo com a senha nova.</p>
+                <div class="msg" id="msgSenha"></div>
+                <button type="submit" class="btn-primary">Salvar nova senha</button>
+            </form>
+        </section>
+
         <section class="card">
             <h2>Horários marcados</h2>
             <div class="filtros">
-                <div>
+                <div id="campoFiltroBarbeiro">
                     <label for="filtroBarbeiro">Barbeiro</label>
                     <select id="filtroBarbeiro"><option value="">Todos</option></select>
                 </div>
@@ -146,7 +174,61 @@
         filtroBarbeiro.addEventListener('change', carregarAgenda);
         filtroData.addEventListener('change', carregarAgenda);
 
+        // ---------- Quem está logado ----------
+        async function carregarUsuario() {
+            const resposta = await fetch('/api/eu');
+            if (!resposta.ok) return;
+            const eu = await resposta.json();
+
+            const nomes = { admin: 'Administrador', recepcao: 'Recepção' };
+            document.getElementById('nomeLogado').textContent = eu.tipo === 'barbeiro' ? eu.nome : nomes[eu.tipo];
+            document.getElementById('barraUsuario').hidden = false;
+
+            if (eu.tipo === 'barbeiro') {
+                // Barbeiro vê só a agenda dele: não precisa do filtro de barbeiro
+                document.getElementById('campoFiltroBarbeiro').hidden = true;
+                document.getElementById('btnTrocarSenha').hidden = false;
+            }
+        }
+
+        // ---------- Trocar a própria senha ----------
+        document.getElementById('btnTrocarSenha').addEventListener('click', () => {
+            const card = document.getElementById('cardSenha');
+            card.hidden = !card.hidden;
+            if (!card.hidden) document.getElementById('senhaAtual').focus();
+        });
+
+        document.getElementById('formSenha').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const msg = document.getElementById('msgSenha');
+            const atual = document.getElementById('senhaAtual').value;
+            const nova = document.getElementById('senhaNova').value;
+
+            if (nova !== document.getElementById('senhaConfirma').value) {
+                msg.className = 'msg erro';
+                msg.textContent = 'As duas senhas novas não são iguais.';
+                return;
+            }
+
+            const resposta = await fetch('/api/eu/senha', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ atual, nova })
+            });
+            const dados = await resposta.json().catch(() => ({}));
+            if (!resposta.ok) {
+                msg.className = 'msg erro';
+                msg.textContent = dados.erro || 'Não deu pra trocar a senha.';
+                return;
+            }
+            msg.className = 'msg sucesso';
+            msg.textContent = 'Senha trocada! Entre de novo com a senha nova.';
+            document.getElementById('formSenha').reset();
+            setTimeout(() => location.reload(), 2000); // o navegador pede o login de novo
+        });
+
         async function iniciar() {
+            await carregarUsuario();
             await carregarBarbeiros();
             await carregarAgenda();
         }

@@ -60,13 +60,25 @@ VARIÁVEIS DO RENDER (Environment)
 DATABASE_URL          -> endereço do banco no Neon (console.neon.tech -> Conectar)
 ADMIN_USUARIO         -> login do dono (página /admin, e também entra no /barbeiro)
 ADMIN_SENHA           -> senha do dono
-BARBEIRO_USUARIO      -> login dos barbeiros (só a página /barbeiro)
-BARBEIRO_SENHA        -> senha dos barbeiros
+BARBEIRO_USUARIO      -> login da RECEPÇÃO (página /barbeiro, vê a agenda de todos)
+BARBEIRO_SENHA        -> senha da recepção
 RESEND_API_KEY        -> chave do Resend (e-mails)
 EMAIL_AVISO_BARBEARIA -> e-mail que recebe aviso de todo agendamento novo
 
 Senhas: use só letras, números e símbolos tipo ! # - (sem acento, ç, dois pontos ou espaço).
 Depois de mudar qualquer variável: "Save, rebuild, and deploy".
+
+
+LOGINS
+--------
+Dono (admin)   -> ADMIN_USUARIO / ADMIN_SENHA no Render. Entra no /admin e no /barbeiro (vê tudo).
+Recepção       -> BARBEIRO_USUARIO / BARBEIRO_SENHA no Render. Entra no /barbeiro (vê todos os barbeiros).
+Cada barbeiro  -> o NOME dele + a senha que o dono definiu no /admin ("dar acesso").
+                  Pode digitar o nome com ou sem acento/maiúscula.
+                  Dentro do /barbeiro ele troca a própria senha ("trocar minha senha").
+                  Esqueceu a senha? O dono define outra no /admin ("trocar senha").
+                  Saiu da barbearia? "tirar acesso" (continua aparecendo pros clientes)
+                  ou "remover" (some da lista de agendamento).
 
 
 CONFIGURAÇÃO DA AGENDA (dados/configuracao.json)
@@ -80,7 +92,9 @@ diasAntecedenciaMaxima  -> até quantos dias pra frente o cliente pode agendar
 
 SEGURANÇA (o que o sistema já faz sozinho)
 --------------------------------------------
-- /admin e /barbeiro pedem senha; o login dos barbeiros não entra no /admin
+- /admin e /barbeiro pedem senha; só o login do dono entra no /admin
+- Cada barbeiro tem login próprio (nome + senha) e só vê/mexe na agenda dele
+- Senhas dos barbeiros ficam embaralhadas (hash) no banco: ninguém consegue ler, só trocar
 - 10 senhas erradas em 15 min bloqueiam aquele IP por 15 min
 - Cliente comum: no máximo 5 agendamentos a cada 15 min (evita agenda lotada de mentira)
 - O servidor confere tudo de novo: dia fechado, horário passado, fora do expediente,

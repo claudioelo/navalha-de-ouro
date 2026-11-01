@@ -39,11 +39,75 @@ const EMAIL_REMETENTE = 'onboarding@resend.dev';
 const ADMIN_USUARIO = process.env.ADMIN_USUARIO || 'admin';
 const ADMIN_SENHA = process.env.ADMIN_SENHA || 'troque-essa-senha';
 
-// ---------- Login dos barbeiros (página /barbeiro) ----------
+// ---------- Login da recepção (página /barbeiro, vê a agenda de todos) ----------
 // No Render, configure BARBEIRO_USUARIO e BARBEIRO_SENHA em Environment.
-// Enquanto não configurar, só o login do admin entra no /barbeiro.
+// Cada barbeiro também tem login próprio (nome + senha), guardado no banco.
 const BARBEIRO_USUARIO = process.env.BARBEIRO_USUARIO || '';
 const BARBEIRO_SENHA = process.env.BARBEIRO_SENHA || '';
+
+// ---------- Senhas dos barbeiros: guardadas "embaralhadas" (hash) ----------
+// O banco nunca guarda a senha de verdade, só um código que não dá pra desfazer.
+// Pra conferir, embaralha a senha digitada do mesmo jeito e compara.
+const crypto = require('crypto');
+
+function gerarHashSenha(senha) {
+  const sal = crypto.randomBytes(16).toString('hex'); // "tempero" aleatório, diferente pra cada senha
+  const hash = crypto.scryptSync(senha, sal, 64).toString('hex');
+  return `${sal}:${hash}`;
+}
+
+function senhaConfere(senha, guardado) {
+  if (!guardado) return false;
+  const [sal, hash] = guardado.split(':');
+  const testado = crypto.scryptSync(senha, sal, 64);
+  const original = Buffer.from(hash, 'hex');
+  return original.length === testado.length && crypto.timingSafeEqual(original, testado);
+}
+
+// Regra de senha: 6 a 50 caracteres, sem espaço e sem acento
+// (acento dá problema na janelinha de login de alguns navegadores)
+function senhaValida(senha) {
+  return typeof senha === 'string' && /^[\x21-\x7E]{6,50}$/.test(senha);
+}
+
+// "João Silva" -> "joao silva": assim o barbeiro pode digitar com ou sem acento/maiúscula
+function normalizarNome(nome) {
+  return String(nome || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+}
+
+// Guarda por 5 minutos quem já fez login certo, pra não precisar
+// embaralhar a senha de novo a cada 10 segundos (a agenda atualiza sozinha)
+const loginsConferidos = new Map();
+function esquecerLogins() {
+  loginsConferidos.clear(); // chamado sempre que alguma senha muda
+}
+
+// Descobre QUEM está fazendo o pedido:
+//   { tipo: 'admin' }                    -> dono (tudo)
+//   { tipo: 'recepcao' }                 -> login compartilhado (agenda de todos)
+//   { tipo: 'barbeiro', nome: 'Carlos' } -> só a agenda dele
+//   null                                 -> ninguém logado (cliente comum)
+async function identificar(req) {
+  const login = lerLogin(req);
+  if (!login) return null;
+
+  if (login.usuario === ADMIN_USUARIO && login.senha === ADMIN_SENHA) return { tipo: 'admin' };
+  if (BARBEIRO_USUARIO && BARBEIRO_SENHA && login.usuario === BARBEIRO_USUARIO && login.senha === BARBEIRO_SENHA) {
+    return { tipo: 'recepcao' };
+  }
+
+  const chave = req.headers['authorization'];
+  const lembrado = loginsConferidos.get(chave);
+  if (lembrado && Date.now() < lembrado.expira) return lembrado.quem;
+
+  const { rows } = await banco.query('SELECT nome, senha_hash FROM barbeiros WHERE senha_hash IS NOT NULL');
+  const barbeiro = rows.find((b) => normalizarNome(b.nome) === normalizarNome(login.usuario));
+  if (!barbeiro || !senhaConfere(login.senha, barbeiro.senha_hash)) return null;
+
+  const quem = { tipo: 'barbeiro', nome: barbeiro.nome };
+  loginsConferidos.set(chave, { quem, expira: Date.now() + 5 * 60000 });
+  return quem;
+}
 
 // Lê o usuário e a senha que o navegador mandou (login da janelinha)
 function lerLogin(req) {
@@ -56,17 +120,14 @@ function lerLogin(req) {
   return { usuario: texto.slice(0, posicao), senha: texto.slice(posicao + 1) };
 }
 
+// Essas duas usam o "req.quem", que é preenchido uma vez no começo de cada pedido
 function verificarSenhaAdmin(req) {
-  const login = lerLogin(req);
-  return !!login && login.usuario === ADMIN_USUARIO && login.senha === ADMIN_SENHA;
+  return req.quem?.tipo === 'admin';
 }
 
-// Barbeiro entra com o login dos barbeiros OU com o do admin
+// Entra no /barbeiro: admin, recepção ou qualquer barbeiro com senha
 function verificarSenhaBarbeiro(req) {
-  if (verificarSenhaAdmin(req)) return true;
-  if (!BARBEIRO_USUARIO || !BARBEIRO_SENHA) return false;
-  const login = lerLogin(req);
-  return !!login && login.usuario === BARBEIRO_USUARIO && login.senha === BARBEIRO_SENHA;
+  return !!req.quem;
 }
 
 function pedirSenha(res, nome) {
@@ -177,6 +238,9 @@ async function prepararBanco() {
   // Coluna nova: status do agendamento ('agendado', 'atendido' ou 'cancelado').
   // Em vez de apagar, agora a gente só muda o status - assim fica o histórico.
   await banco.query(`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'agendado'`);
+
+  // Coluna nova: senha de cada barbeiro (embaralhada). Vazia = barbeiro sem acesso ao /barbeiro.
+  await banco.query(`ALTER TABLE barbeiros ADD COLUMN IF NOT EXISTS senha_hash TEXT`);
 
   // Se o banco ainda não tem barbeiros, copia do barbeiros.json
   const { rows: qtdBarbeiros } = await banco.query('SELECT COUNT(*)::int AS total FROM barbeiros');
@@ -420,7 +484,8 @@ async function tratarRequisicao(req, res) {
       res.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8' });
       return res.end('Muitas tentativas de senha erradas. Espere 15 minutos e tente de novo.');
     }
-    if (!verificarSenhaBarbeiro(req)) {
+    req.quem = await identificar(req); // descobre quem é (admin, recepção ou qual barbeiro)
+    if (!req.quem) {
       contarTentativa('login', req, 15);
     }
   }
@@ -461,20 +526,48 @@ async function tratarRequisicao(req, res) {
     try {
       const dados = await lerCorpo(req);
       const nome = (dados.nome || '').trim();
+      const senha = dados.senha || '';
       if (!nome) return responderJSON(res, 400, { erro: 'Informe o nome do barbeiro.' });
       if (nome.length > 40) return responderJSON(res, 400, { erro: 'Nome muito grande (máximo 40 letras).' });
-
-      const resultado = await banco.query(
-        'INSERT INTO barbeiros (nome) VALUES ($1) ON CONFLICT (nome) DO NOTHING',
-        [nome]
-      );
-      if (resultado.rowCount === 0) {
-        return responderJSON(res, 409, { erro: 'Esse barbeiro já está cadastrado.' });
+      if (nome.includes(':')) return responderJSON(res, 400, { erro: 'O nome não pode ter dois pontos (:).' });
+      if (senha && !senhaValida(senha)) {
+        return responderJSON(res, 400, { erro: 'Senha precisa ter de 6 a 50 caracteres, sem espaço e sem acento.' });
       }
+
+      // Como o nome vira login, não pode ter dois iguais (nem "João" e "Joao")
+      const existentes = await listarBarbeiros();
+      if (existentes.some((b) => normalizarNome(b) === normalizarNome(nome))) {
+        return responderJSON(res, 409, { erro: 'Já existe um barbeiro com esse nome.' });
+      }
+
+      await banco.query('INSERT INTO barbeiros (nome, senha_hash) VALUES ($1, $2)', [nome, senha ? gerarHashSenha(senha) : null]);
       return responderJSON(res, 201, await listarBarbeiros());
     } catch (erro) {
       return responderJSON(res, 500, { erro: 'Erro ao cadastrar barbeiro.' });
     }
+  }
+
+  // API (admin): lista de barbeiros com a informação de quem tem acesso
+  if (req.method === 'GET' && rota === '/api/barbeiros/acessos') {
+    if (!verificarSenhaAdmin(req)) return responderJSON(res, 401, { erro: 'Acesso negado.' });
+    const { rows } = await banco.query('SELECT nome, senha_hash IS NOT NULL AS "temAcesso" FROM barbeiros ORDER BY id');
+    return responderJSON(res, 200, rows);
+  }
+
+  // API (admin): definir/trocar a senha de um barbeiro  ->  { "senha": "..." }
+  // Mandando { "senha": null } tira o acesso dele (continua aparecendo pros clientes)
+  if (req.method === 'POST' && /^\/api\/barbeiros\/[^/]+\/senha$/.test(rota)) {
+    if (!verificarSenhaAdmin(req)) return responderJSON(res, 401, { erro: 'Acesso negado.' });
+    const nome = decodeURIComponent(rota.split('/')[3]);
+    const dados = await lerCorpo(req);
+    if (dados.senha !== null && !senhaValida(dados.senha)) {
+      return responderJSON(res, 400, { erro: 'Senha precisa ter de 6 a 50 caracteres, sem espaço e sem acento.' });
+    }
+    const resultado = await banco.query('UPDATE barbeiros SET senha_hash = $1 WHERE nome = $2',
+      [dados.senha === null ? null : gerarHashSenha(dados.senha), nome]);
+    if (resultado.rowCount === 0) return responderJSON(res, 404, { erro: 'Barbeiro não encontrado.' });
+    esquecerLogins(); // quem estava logado com a senha antiga precisa entrar de novo
+    return responderJSON(res, 200, { ok: true });
   }
 
   // API: remover barbeiro
@@ -482,7 +575,32 @@ async function tratarRequisicao(req, res) {
     if (!verificarSenhaAdmin(req)) return responderJSON(res, 401, { erro: 'Acesso negado.' });
     const nome = decodeURIComponent(rota.split('/').pop());
     await banco.query('DELETE FROM barbeiros WHERE nome = $1', [nome]);
+    esquecerLogins();
     return responderJSON(res, 200, await listarBarbeiros());
+  }
+
+  // API: quem sou eu? (a página do barbeiro usa pra se adaptar)
+  if (req.method === 'GET' && rota === '/api/eu') {
+    if (!req.quem) return responderJSON(res, 401, { erro: 'Acesso negado.' });
+    return responderJSON(res, 200, req.quem);
+  }
+
+  // API: o barbeiro troca a própria senha  ->  { "atual": "...", "nova": "..." }
+  if (req.method === 'POST' && rota === '/api/eu/senha') {
+    if (req.quem?.tipo !== 'barbeiro') {
+      return responderJSON(res, 403, { erro: 'Só barbeiro com login próprio troca a senha aqui.' });
+    }
+    const dados = await lerCorpo(req);
+    const { rows } = await banco.query('SELECT senha_hash FROM barbeiros WHERE nome = $1', [req.quem.nome]);
+    if (!rows.length || !senhaConfere(String(dados.atual || ''), rows[0].senha_hash)) {
+      return responderJSON(res, 400, { erro: 'A senha atual está errada.' });
+    }
+    if (!senhaValida(dados.nova)) {
+      return responderJSON(res, 400, { erro: 'A nova senha precisa ter de 6 a 50 caracteres, sem espaço e sem acento.' });
+    }
+    await banco.query('UPDATE barbeiros SET senha_hash = $1 WHERE nome = $2', [gerarHashSenha(dados.nova), req.quem.nome]);
+    esquecerLogins();
+    return responderJSON(res, 200, { ok: true });
   }
 
   // API: cadastrar serviço
@@ -524,11 +642,16 @@ async function tratarRequisicao(req, res) {
 
   // API: listar agendamentos (com filtro opcional por barbeiro e data)
   if (req.method === 'GET' && rota === '/api/agendamentos') {
-    const barbeiroF = url.searchParams.get('barbeiro');
+    let barbeiroF = url.searchParams.get('barbeiro');
     const dataF = url.searchParams.get('data');
-    // Quem tem login (barbeiro ou admin) vê tudo. Quem não tem (página do cliente)
+    // Admin e recepção veem os detalhes de todos. Quem não tem login (página do cliente)
     // só fica sabendo quais horários estão ocupados - sem nome nem telefone de ninguém.
-    const temLogin = verificarSenhaBarbeiro(req);
+    let temLogin = verificarSenhaBarbeiro(req);
+    // Barbeiro com login próprio: vê detalhes só dos clientes DELE
+    if (req.quem?.tipo === 'barbeiro') {
+      if (!barbeiroF) barbeiroF = req.quem.nome;          // página do barbeiro: mostra só a agenda dele
+      else if (barbeiroF !== req.quem.nome) temLogin = false; // agenda de outro: só os horários ocupados
+    }
     // A página do cliente não precisa ver os cancelados (eles liberam o horário).
     // A página do barbeiro pede com ?todos=1 pra mostrar tudo.
     const mostrarTodos = temLogin && url.searchParams.get('todos') === '1';
@@ -640,6 +763,9 @@ async function tratarRequisicao(req, res) {
     const { rows } = await banco.query('SELECT * FROM agendamentos WHERE id = $1', [id]);
     const agendamento = rows[0];
     if (!agendamento) return responderJSON(res, 404, { erro: 'Agendamento não encontrado.' });
+    if (req.quem.tipo === 'barbeiro' && agendamento.barbeiro !== req.quem.nome) {
+      return responderJSON(res, 403, { erro: 'Esse agendamento é de outro barbeiro.' });
+    }
 
     // Se for desfazer um cancelamento, o horário pode já ter sido pego por outro cliente
     if (agendamento.status === 'cancelado' && dados.status !== 'cancelado') {
@@ -656,7 +782,12 @@ async function tratarRequisicao(req, res) {
   if (req.method === 'DELETE' && rota.startsWith('/api/agendamentos/')) {
     if (!verificarSenhaBarbeiro(req)) return responderJSON(res, 401, { erro: 'Acesso negado.' });
     const id = Number(rota.split('/').pop());
-    await banco.query(`UPDATE agendamentos SET status = 'cancelado' WHERE id = $1`, [id]);
+    // Barbeiro só cancela os dele; admin e recepção cancelam qualquer um
+    if (req.quem.tipo === 'barbeiro') {
+      await banco.query(`UPDATE agendamentos SET status = 'cancelado' WHERE id = $1 AND barbeiro = $2`, [id, req.quem.nome]);
+    } else {
+      await banco.query(`UPDATE agendamentos SET status = 'cancelado' WHERE id = $1`, [id]);
+    }
     return responderJSON(res, 200, { ok: true });
   }
 
