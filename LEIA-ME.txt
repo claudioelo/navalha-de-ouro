@@ -55,10 +55,46 @@ de mandar o e-mail de verdade, ele escreve no console (log) o que teria sido
 enviado. Não trava nem dá erro.
 
 
+VARIÁVEIS DO RENDER (Environment)
+-----------------------------------
+DATABASE_URL          -> endereço do banco no Neon (console.neon.tech -> Conectar)
+ADMIN_USUARIO         -> login do dono (página /admin, e também entra no /barbeiro)
+ADMIN_SENHA           -> senha do dono
+BARBEIRO_USUARIO      -> login dos barbeiros (só a página /barbeiro)
+BARBEIRO_SENHA        -> senha dos barbeiros
+RESEND_API_KEY        -> chave do Resend (e-mails)
+EMAIL_AVISO_BARBEARIA -> e-mail que recebe aviso de todo agendamento novo
+
+Senhas: use só letras, números e símbolos tipo ! # - (sem acento, ç, dois pontos ou espaço).
+Depois de mudar qualquer variável: "Save, rebuild, and deploy".
+
+
+CONFIGURAÇÃO DA AGENDA (dados/configuracao.json)
+--------------------------------------------------
+diasFechados            -> dias que não abre (0 = domingo, 1 = segunda ... 6 = sábado)
+horarioAbertura         -> primeiro horário do dia
+horarioFechamento       -> horário que fecha (o serviço precisa TERMINAR até aqui)
+intervaloMinutos        -> de quanto em quanto tempo aparecem os horários
+diasAntecedenciaMaxima  -> até quantos dias pra frente o cliente pode agendar
+
+
+SEGURANÇA (o que o sistema já faz sozinho)
+--------------------------------------------
+- /admin e /barbeiro pedem senha; o login dos barbeiros não entra no /admin
+- 10 senhas erradas em 15 min bloqueiam aquele IP por 15 min
+- Cliente comum: no máximo 5 agendamentos a cada 15 min (evita agenda lotada de mentira)
+- O servidor confere tudo de novo: dia fechado, horário passado, fora do expediente,
+  barbeiro/serviço que não existe, nome/telefone/e-mail inválidos
+- Dois clientes no mesmo horário ao mesmo tempo: só um consegue
+- A página do cliente só sabe quais horários estão ocupados (sem nome/telefone de ninguém)
+- Nomes são mostrados como texto, nunca como código
+- Agendamento não é apagado: fica como agendado, atendido ou cancelado (histórico)
+
+
 ESTRUTURA DOS ARQUIVOS
 ------------------------
 servidor.js          -> o back-end (rotas, regras de conflito de horário, e-mail)
 public/cliente.html  -> tela onde o cliente agenda
 public/barbeiro.html -> tela onde o barbeiro acompanha (atualiza sozinha a cada 10s)
-public/estilo.css    -> visual das duas páginas
-dados/*.json         -> onde ficam salvos agendamentos, barbeiros e serviços
+public/estilo.css    -> visual de todas as páginas
+dados/configuracao.json -> horário de funcionamento (o resto fica no banco Neon)

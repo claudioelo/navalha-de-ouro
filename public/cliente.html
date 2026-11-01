@@ -25,15 +25,15 @@
             <form id="formAgendamento">
                 <div class="full">
                     <label for="cliente">Seu nome</label>
-                    <input type="text" id="cliente" required>
+                    <input type="text" id="cliente" required minlength="2" maxlength="60">
                 </div>
                 <div>
                     <label for="telefone">Telefone / WhatsApp</label>
-                    <input type="tel" id="telefone" placeholder="(43) 90000-0000">
+                    <input type="tel" id="telefone" placeholder="(43) 90000-0000" maxlength="20">
                 </div>
                 <div>
                     <label for="email">E-mail (pra confirmação)</label>
-                    <input type="email" id="email" placeholder="opcional">
+                    <input type="email" id="email" placeholder="opcional" maxlength="100">
                 </div>
                 <div>
                     <label for="barbeiro">Barbeiro</label>
@@ -83,7 +83,15 @@
         let horarioAbertura = '09:00';
         let horarioFechamento = '19:30';
         let intervaloMinutos = 30;
+        let diasAntecedenciaMaxima = 60;
         let mesAtual = new Date();
+
+        // SEGURANÇA: mostra os nomes como texto puro, nunca como código
+        function esc(valor) {
+            return String(valor ?? '')
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
         mesAtual.setDate(1);
 
         const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -117,7 +125,11 @@
                 const diaSemana = dataDia.getDay();
                 const passou = dataDia < hoje;
                 const fechado = diasFechados.includes(diaSemana);
-                const indisponivel = passou || fechado;
+                // Não deixa agendar muito pra frente (o servidor também confere isso)
+                const limite = new Date(hoje);
+                limite.setDate(limite.getDate() + diasAntecedenciaMaxima);
+                const longeDemais = dataDia > limite;
+                const indisponivel = passou || fechado || longeDemais;
 
                 const botao = document.createElement('button');
                 botao.type = 'button';
@@ -236,8 +248,9 @@
             horarioAbertura = config.horarioAbertura || '09:00';
             horarioFechamento = config.horarioFechamento || '19:30';
             intervaloMinutos = config.intervaloMinutos || 30;
-            selectBarbeiro.innerHTML = barbeiros.map(b => `<option value="${b}">${b}</option>`).join('');
-            selectServico.innerHTML = servs.map(s => `<option value="${s.nome}">${s.nome} — ${s.duracao}min — R$${s.preco}</option>`).join('');
+            diasAntecedenciaMaxima = config.diasAntecedenciaMaxima || 60;
+            selectBarbeiro.innerHTML = barbeiros.map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('');
+            selectServico.innerHTML = servs.map(s => `<option value="${esc(s.nome)}">${esc(s.nome)} — ${esc(s.duracao)}min — R$${esc(s.preco)}</option>`).join('');
             renderCalendario();
             renderGradeHorarios();
         }

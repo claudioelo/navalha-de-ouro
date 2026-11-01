@@ -59,16 +59,24 @@
         const listaBarbeiros = document.getElementById('listaBarbeiros');
         const listaServicos = document.getElementById('listaServicos');
 
+        // SEGURANÇA: mostra os nomes como texto puro, nunca como código
+        function esc(valor) {
+            return String(valor ?? '')
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
         function renderBarbeiros(barbeiros) {
             listaBarbeiros.innerHTML = barbeiros.map(b =>
                 `<div style="display:flex;justify-content:space-between;align-items:center;">
-          <span>${b}</span>
-          <button data-nome="${b}" class="removerBarbeiro btn-cancelar">remover</button>
+          <span>${esc(b)}</span>
+          <button data-nome="${esc(b)}" class="removerBarbeiro btn-cancelar">remover</button>
         </div>`
             ).join('') || '<p class="vazio" style="padding:0;">Nenhum barbeiro cadastrado</p>';
 
             listaBarbeiros.querySelectorAll('.removerBarbeiro').forEach(btn => {
                 btn.addEventListener('click', async () => {
+                    if (!confirm(`Remover o barbeiro ${btn.dataset.nome}?`)) return;
                     await fetch(`/api/barbeiros/${encodeURIComponent(btn.dataset.nome)}`, { method: 'DELETE' });
                     carregarBarbeiros();
                 });
@@ -78,13 +86,14 @@
         function renderServicos(servicos) {
             listaServicos.innerHTML = servicos.map(s =>
                 `<div style="display:flex;justify-content:space-between;align-items:center;">
-          <span>${s.nome} <span class="tag">${s.duracao}min · R$${s.preco}</span></span>
-          <button data-nome="${s.nome}" class="removerServico btn-cancelar">remover</button>
+          <span>${esc(s.nome)} <span class="tag">${esc(s.duracao)}min · R$${esc(s.preco)}</span></span>
+          <button data-nome="${esc(s.nome)}" class="removerServico btn-cancelar">remover</button>
         </div>`
             ).join('') || '<p class="vazio" style="padding:0;">Nenhum serviço cadastrado</p>';
 
             listaServicos.querySelectorAll('.removerServico').forEach(btn => {
                 btn.addEventListener('click', async () => {
+                    if (!confirm(`Remover o serviço ${btn.dataset.nome}?`)) return;
                     await fetch(`/api/servicos/${encodeURIComponent(btn.dataset.nome)}`, { method: 'DELETE' });
                     carregarServicos();
                 });

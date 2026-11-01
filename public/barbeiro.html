@@ -42,11 +42,20 @@
         const filtroData = document.getElementById('filtroData');
         const tabelaWrap = document.getElementById('tabelaWrap');
 
+        // SEGURANÇA: transforma texto em "texto puro" antes de colocar na página.
+        // Sem isso, um cliente podia agendar com um código no lugar do nome
+        // e esse código rodaria aqui, no celular do barbeiro logado.
+        function esc(valor) {
+            return String(valor ?? '')
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
         async function carregarBarbeiros() {
             const barbeiros = await fetch('/api/barbeiros').then(r => r.json());
             const selecionado = filtroBarbeiro.value;
             filtroBarbeiro.innerHTML = '<option value="">Todos</option>' +
-                barbeiros.map(b => `<option value="${b}">${b}</option>`).join('');
+                barbeiros.map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('');
             filtroBarbeiro.value = selecionado;
         }
 
@@ -71,7 +80,18 @@
             if (filtroData.value) params.set('data', filtroData.value);
 
             params.set('todos', '1'); // mostra também os cancelados
-            const lista = await fetch(`/api/agendamentos?${params}`).then(r => r.json());
+            const resposta = await fetch(`/api/agendamentos?${params}`);
+            if (resposta.status === 401) {
+                // Login perdido: recarrega a página pra pedir a senha de novo
+                location.reload();
+                return;
+            }
+            if (!resposta.ok) {
+                const erro = await resposta.json().catch(() => ({}));
+                tabelaWrap.innerHTML = `<p class="vazio">${esc(erro.erro || 'Erro ao carregar a agenda.')}</p>`;
+                return;
+            }
+            const lista = await resposta.json();
 
             if (lista.length === 0) {
                 tabelaWrap.innerHTML = '<p class="vazio">Nenhum agendamento encontrado.</p>';
@@ -87,15 +107,15 @@
           </thead>
           <tbody>
             ${lista.map(a => `
-              <tr class="linha-${a.status}">
-                <td>${formatarData(a.data)}</td>
-                <td>${a.hora}</td>
-                <td>${a.cliente}</td>
-                <td>${a.telefone || '—'}</td>
-                <td>${a.barbeiro}</td>
-                <td>${a.servico}</td>
-                <td>R$${a.preco}</td>
-                <td><span class="status status-${a.status}">${a.status}</span></td>
+              <tr class="linha-${esc(a.status)}">
+                <td>${esc(formatarData(a.data))}</td>
+                <td>${esc(a.hora)}</td>
+                <td>${esc(a.cliente)}</td>
+                <td>${esc(a.telefone) || '—'}</td>
+                <td>${esc(a.barbeiro)}</td>
+                <td>${esc(a.servico)}</td>
+                <td>R$${esc(a.preco)}</td>
+                <td><span class="status status-${esc(a.status)}">${esc(a.status)}</span></td>
                 <td class="acoes">${botoesDoStatus(a)}</td>
               </tr>
             `).join('')}

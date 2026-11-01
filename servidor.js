@@ -39,17 +39,46 @@ const EMAIL_REMETENTE = 'onboarding@resend.dev';
 const ADMIN_USUARIO = process.env.ADMIN_USUARIO || 'admin';
 const ADMIN_SENHA = process.env.ADMIN_SENHA || 'troque-essa-senha';
 
+// ---------- Login dos barbeiros (página /barbeiro) ----------
+// No Render, configure BARBEIRO_USUARIO e BARBEIRO_SENHA em Environment.
+// Enquanto não configurar, só o login do admin entra no /barbeiro.
+const BARBEIRO_USUARIO = process.env.BARBEIRO_USUARIO || '';
+const BARBEIRO_SENHA = process.env.BARBEIRO_SENHA || '';
+
+// Lê o usuário e a senha que o navegador mandou (login da janelinha)
+function lerLogin(req) {
+  const cabecalho = req.headers['authorization'] || '';
+  const [tipo, codigo] = cabecalho.split(' ');
+  if (tipo !== 'Basic' || !codigo) return null;
+  const texto = Buffer.from(codigo, 'base64').toString();
+  const posicao = texto.indexOf(':');
+  if (posicao === -1) return null;
+  return { usuario: texto.slice(0, posicao), senha: texto.slice(posicao + 1) };
+}
+
 function verificarSenhaAdmin(req) {
-  const cabecalho = req.headers['authorization'];
-  if (!cabecalho) return false;
-  const credenciais = Buffer.from(cabecalho.split(' ')[1], 'base64').toString();
-  const [usuario, senha] = credenciais.split(':');
-  return usuario === ADMIN_USUARIO && senha === ADMIN_SENHA;
+  const login = lerLogin(req);
+  return !!login && login.usuario === ADMIN_USUARIO && login.senha === ADMIN_SENHA;
+}
+
+// Barbeiro entra com o login dos barbeiros OU com o do admin
+function verificarSenhaBarbeiro(req) {
+  if (verificarSenhaAdmin(req)) return true;
+  if (!BARBEIRO_USUARIO || !BARBEIRO_SENHA) return false;
+  const login = lerLogin(req);
+  return !!login && login.usuario === BARBEIRO_USUARIO && login.senha === BARBEIRO_SENHA;
+}
+
+function pedirSenha(res, nome) {
+  res.writeHead(401, {
+    'WWW-Authenticate': `Basic realm="${nome}", charset="UTF-8"`,
+    'Content-Type': 'text/plain; charset=utf-8'
+  });
+  res.end('Acesso negado');
 }
 
 function pedirSenhaAdmin(res) {
-  res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Admin Navalha de Ouro"' });
-  res.end('Acesso negado');
+  pedirSenha(res, 'Admin Navalha de Ouro');
 }
 
 async function enviarEmail(destinatario, assunto, corpo) {
@@ -177,10 +206,123 @@ function lerJSON(caminho) {
   return JSON.parse(fs.readFileSync(caminho, 'utf-8'));
 }
 
+// ---------- Data e hora "de agora" no horário de Brasília ----------
+// O servidor do Render roda em outro fuso, então a gente calcula na mão.
+const FUSO = 'America/Sao_Paulo';
+
+function agoraNoBrasil() {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: FUSO, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(new Date());
+  const p = Object.fromEntries(partes.map((x) => [x.type, x.value]));
+  return { data: `${p.year}-${p.month}-${p.day}`, minutos: Number(p.hour) * 60 + Number(p.minute) };
+}
+
+function horaParaMinutos(hora) {
+  const [h, m] = hora.split(':').map(Number);
+  return h * 60 + m;
+}
+
+// Quantos dias faltam de "hoje" até a data (ex: amanhã = 1)
+function diasAte(dataHoje, data) {
+  return Math.round((Date.parse(`${data}T00:00:00Z`) - Date.parse(`${dataHoje}T00:00:00Z`)) / 86400000);
+}
+
+// ---------- Validação do agendamento ----------
+// O servidor NÃO confia no que a página manda: confere tudo de novo aqui.
+// Devolve a mensagem de erro, ou null se estiver tudo certo.
+async function validarAgendamento(dados) {
+  const texto = (valor) => (typeof valor === 'string' ? valor.trim() : '');
+  const cliente = texto(dados.cliente);
+  const telefone = texto(dados.telefone);
+  const email = texto(dados.email);
+  const data = texto(dados.data);
+  const hora = texto(dados.hora);
+
+  if (!cliente || !dados.barbeiro || !dados.servico || !data || !hora) {
+    return 'Preencha todos os campos obrigatórios.';
+  }
+  if (cliente.length < 2 || cliente.length > 60) return 'O nome precisa ter entre 2 e 60 letras.';
+  if (telefone && !/^[0-9()+\-\s]{8,20}$/.test(telefone)) return 'Telefone inválido.';
+  if (email && (email.length > 100 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) return 'E-mail inválido.';
+
+  // Data e hora no formato certo (2026-11-05 e 14:30) e que existam de verdade
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || isNaN(Date.parse(`${data}T00:00:00Z`)) ||
+      new Date(`${data}T00:00:00Z`).toISOString().slice(0, 10) !== data) {
+    return 'Data inválida.';
+  }
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) return 'Horário inválido.';
+
+  // Barbeiro e serviço precisam existir no banco
+  const { rows: barbeiros } = await banco.query('SELECT 1 FROM barbeiros WHERE nome = $1', [dados.barbeiro]);
+  if (!barbeiros.length) return 'Barbeiro não encontrado.';
+  const { rows: servicos } = await banco.query('SELECT * FROM servicos WHERE nome = $1', [dados.servico]);
+  if (!servicos.length) return 'Serviço não encontrado.';
+  const servico = servicos[0];
+
+  // Regras da agenda (as mesmas do calendário da página do cliente)
+  const config = lerJSON(ARQ_CONFIGURACAO);
+  const abertura = horaParaMinutos(config.horarioAbertura || '09:00');
+  const fechamento = horaParaMinutos(config.horarioFechamento || '19:30');
+  const intervalo = config.intervaloMinutos || 30;
+  const antecedenciaMaxima = config.diasAntecedenciaMaxima || 60;
+  const inicio = horaParaMinutos(hora);
+  const agora = agoraNoBrasil();
+  const dias = diasAte(agora.data, data);
+  const diaDaSemana = new Date(`${data}T12:00:00Z`).getUTCDay(); // 0 = domingo
+
+  if (dias < 0 || (dias === 0 && inicio <= agora.minutos)) return 'Esse horário já passou.';
+  if (dias > antecedenciaMaxima) return `Só dá pra agendar com até ${antecedenciaMaxima} dias de antecedência.`;
+  if ((config.diasFechados || []).includes(diaDaSemana)) return 'A barbearia não abre nesse dia.';
+  if (inicio < abertura || inicio + servico.duracao > fechamento || (inicio - abertura) % intervalo !== 0) {
+    return 'Horário fora do funcionamento da barbearia.';
+  }
+
+  return null;
+}
+
+// ---------- Proteção contra abuso (muitas tentativas do mesmo lugar) ----------
+// Guarda na memória quantas vezes cada IP fez algo, numa janela de tempo.
+const tentativas = new Map();
+
+function pegarIP(req) {
+  // No Render, o IP verdadeiro vem nesse cabeçalho
+  const encaminhado = req.headers['x-forwarded-for'];
+  return (encaminhado ? encaminhado.split(',')[0] : req.socket.remoteAddress || '').trim();
+}
+
+// Devolve true se esse IP já passou do limite
+function passouDoLimite(tipo, req, limite) {
+  const chave = `${tipo}:${pegarIP(req)}`;
+  const agora = Date.now();
+  const registro = tentativas.get(chave);
+  if (!registro || agora > registro.expira) return false;
+  return registro.quantidade >= limite;
+}
+
+function contarTentativa(tipo, req, minutos) {
+  const chave = `${tipo}:${pegarIP(req)}`;
+  const agora = Date.now();
+  const registro = tentativas.get(chave);
+  if (!registro || agora > registro.expira) {
+    tentativas.set(chave, { quantidade: 1, expira: agora + minutos * 60000 });
+  } else {
+    registro.quantidade++;
+  }
+}
+
+// Limpa os registros vencidos a cada 10 minutos, pra memória não encher
+setInterval(() => {
+  const agora = Date.now();
+  for (const [chave, registro] of tentativas) if (agora > registro.expira) tentativas.delete(chave);
+}, 10 * 60000).unref();
+
 // ---------- Regra de conflito de horário (mesma lógica de antes) ----------
-async function horarioDisponivel(novo) {
+// "conexao" permite usar dentro de uma transação (ver criação do agendamento)
+async function horarioDisponivel(novo, conexao = banco) {
   // Pega só os agendamentos daquele barbeiro naquele dia (cancelados liberam o horário)
-  const { rows: agendamentos } = await banco.query(
+  const { rows: agendamentos } = await conexao.query(
     `SELECT * FROM agendamentos WHERE barbeiro = $1 AND data = $2 AND status <> 'cancelado'`,
     [novo.barbeiro, novo.data]
   );
@@ -202,7 +344,14 @@ async function horarioDisponivel(novo) {
 function lerCorpo(req) {
   return new Promise((resolve, reject) => {
     let corpo = '';
-    req.on('data', (parte) => (corpo += parte));
+    req.on('data', (parte) => {
+      corpo += parte;
+      // Ninguém precisa mandar mais que 10 KB pra agendar - corta quem tentar mandar lixo gigante
+      if (corpo.length > 10000) {
+        req.destroy();
+        reject(new Error('Corpo da requisição grande demais'));
+      }
+    });
     req.on('end', () => {
       try {
         resolve(corpo ? JSON.parse(corpo) : {});
@@ -214,7 +363,8 @@ function lerCorpo(req) {
 }
 
 function responderJSON(res, status, dados) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  // no-store: o navegador não guarda cópia dos dados (tem nome e telefone de cliente)
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(dados));
 }
 
@@ -253,11 +403,35 @@ async function tratarRequisicao(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const rota = url.pathname;
 
+  // Cabeçalhos de segurança em todas as respostas:
+  // - nosniff: o navegador não "adivinha" o tipo do arquivo
+  // - DENY: ninguém consegue colocar o site dentro de outro site (golpe do clique escondido)
+  // - same-origin: não vaza o endereço das páginas pra sites de fora
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'same-origin');
+
+  // Proteção contra quem fica chutando senha: 10 erros em 15 minutos bloqueia aquele IP por 15 minutos
+  if (req.headers['authorization']) {
+    if (passouDoLimite('login', req, 10)) {
+      if (rota.startsWith('/api/')) {
+        return responderJSON(res, 429, { erro: 'Muitas tentativas de senha. Espere 15 minutos.' });
+      }
+      res.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end('Muitas tentativas de senha erradas. Espere 15 minutos e tente de novo.');
+    }
+    if (!verificarSenhaBarbeiro(req)) {
+      contarTentativa('login', req, 15);
+    }
+  }
+
   // Páginas
   if (req.method === 'GET' && rota === '/') {
     return servirArquivoEstatico(res, path.join(PASTA_PUBLIC, 'cliente.html'));
   }
+  // Página do barbeiro (protegida por senha)
   if (req.method === 'GET' && rota === '/barbeiro') {
+    if (!verificarSenhaBarbeiro(req)) return pedirSenha(res, 'Agenda Navalha de Ouro');
     return servirArquivoEstatico(res, path.join(PASTA_PUBLIC, 'barbeiro.html'));
   }
   if (req.method === 'GET' && rota === '/estilo.css') {
@@ -288,6 +462,7 @@ async function tratarRequisicao(req, res) {
       const dados = await lerCorpo(req);
       const nome = (dados.nome || '').trim();
       if (!nome) return responderJSON(res, 400, { erro: 'Informe o nome do barbeiro.' });
+      if (nome.length > 40) return responderJSON(res, 400, { erro: 'Nome muito grande (máximo 40 letras).' });
 
       const resultado = await banco.query(
         'INSERT INTO barbeiros (nome) VALUES ($1) ON CONFLICT (nome) DO NOTHING',
@@ -322,6 +497,9 @@ async function tratarRequisicao(req, res) {
       if (!nome || !duracao || duracao <= 0 || isNaN(preco) || preco < 0) {
         return responderJSON(res, 400, { erro: 'Preencha nome, duração (min) e preço corretamente.' });
       }
+      if (nome.length > 60 || !Number.isInteger(duracao) || duracao > 480 || preco > 10000) {
+        return responderJSON(res, 400, { erro: 'Nome até 60 letras, duração de 1 a 480 minutos (número inteiro) e preço até R$10.000.' });
+      }
 
       const resultado = await banco.query(
         'INSERT INTO servicos (nome, duracao, preco) VALUES ($1, $2, $3) ON CONFLICT (nome) DO NOTHING',
@@ -348,9 +526,12 @@ async function tratarRequisicao(req, res) {
   if (req.method === 'GET' && rota === '/api/agendamentos') {
     const barbeiroF = url.searchParams.get('barbeiro');
     const dataF = url.searchParams.get('data');
+    // Quem tem login (barbeiro ou admin) vê tudo. Quem não tem (página do cliente)
+    // só fica sabendo quais horários estão ocupados - sem nome nem telefone de ninguém.
+    const temLogin = verificarSenhaBarbeiro(req);
     // A página do cliente não precisa ver os cancelados (eles liberam o horário).
     // A página do barbeiro pede com ?todos=1 pra mostrar tudo.
-    const mostrarTodos = url.searchParams.get('todos') === '1';
+    const mostrarTodos = temLogin && url.searchParams.get('todos') === '1';
 
     // Monta o filtro só com o que veio na URL
     const condicoes = [];
@@ -366,9 +547,12 @@ async function tratarRequisicao(req, res) {
     }
     const where = condicoes.length ? `WHERE ${condicoes.join(' AND ')}` : '';
 
+    const colunas = temLogin
+      ? 'id, cliente, telefone, email, barbeiro, servico, duracao, preco, data, hora, status'
+      : 'barbeiro, data, hora, duracao'; // só o necessário pra riscar os horários ocupados
+
     const { rows } = await banco.query(
-      `SELECT id, cliente, telefone, email, barbeiro, servico, duracao, preco, data, hora, status
-       FROM agendamentos ${where} ORDER BY data, hora`,
+      `SELECT ${colunas} FROM agendamentos ${where} ORDER BY data, hora`,
       valores
     );
     return responderJSON(res, 200, rows);
@@ -376,32 +560,45 @@ async function tratarRequisicao(req, res) {
 
   // API: criar agendamento
   if (req.method === 'POST' && rota === '/api/agendamentos') {
+    // Cliente comum: no máximo 5 agendamentos a cada 15 minutos por IP (evita alguém lotar a agenda de mentira).
+    // Barbeiro/admin logado não tem limite (ele pode marcar vários clientes seguidos).
+    const logado = verificarSenhaBarbeiro(req);
+    if (!logado && passouDoLimite('agendar', req, 5, 15)) {
+      return responderJSON(res, 429, { erro: 'Muitos agendamentos seguidos. Espere uns minutos e tente de novo.' });
+    }
+
+    const conexao = await banco.connect();
     try {
       const dados = await lerCorpo(req);
+      const erro = await validarAgendamento(dados);
+      if (erro) return responderJSON(res, 400, { erro });
+
       const { rows: achados } = await banco.query('SELECT * FROM servicos WHERE nome = $1', [dados.servico]);
       const servico = achados[0];
 
-      if (!dados.cliente || !dados.barbeiro || !servico || !dados.data || !dados.hora) {
-        return responderJSON(res, 400, { erro: 'Preencha todos os campos obrigatórios.' });
-      }
-
       const novoAgendamento = {
-        cliente: dados.cliente,
-        telefone: dados.telefone || '',
-        email: dados.email || '',
+        cliente: dados.cliente.trim(),
+        telefone: (dados.telefone || '').trim(),
+        email: (dados.email || '').trim(),
         barbeiro: dados.barbeiro,
         servico: servico.nome,
         duracao: servico.duracao,
         preco: servico.preco,
-        data: dados.data,
-        hora: dados.hora
+        data: dados.data.trim(),
+        hora: dados.hora.trim()
       };
 
-      if (!(await horarioDisponivel(novoAgendamento))) {
-        return responderJSON(res, 409, { erro: `${dados.barbeiro} já tem um horário marcado nesse período.` });
+      // Transação com "trava" por barbeiro e dia: se dois clientes clicarem no mesmo horário
+      // ao mesmo tempo, um espera o outro terminar - assim nunca entram os dois.
+      await conexao.query('BEGIN');
+      await conexao.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${novoAgendamento.barbeiro}|${novoAgendamento.data}`]);
+
+      if (!(await horarioDisponivel(novoAgendamento, conexao))) {
+        await conexao.query('ROLLBACK');
+        return responderJSON(res, 409, { erro: `${novoAgendamento.barbeiro} já tem um horário marcado nesse período.` });
       }
 
-      const { rows: inseridos } = await banco.query(
+      const { rows: inseridos } = await conexao.query(
         `INSERT INTO agendamentos (cliente, telefone, email, barbeiro, servico, duracao, preco, data, hora)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
         [
@@ -410,7 +607,9 @@ async function tratarRequisicao(req, res) {
           novoAgendamento.preco, novoAgendamento.data, novoAgendamento.hora
         ]
       );
+      await conexao.query('COMMIT');
       novoAgendamento.id = inseridos[0].id;
+      if (!logado) contarTentativa('agendar', req, 15);
 
       if (novoAgendamento.email) {
         enviarEmailConfirmacao(novoAgendamento); // não precisa esperar terminar pra responder
@@ -419,13 +618,18 @@ async function tratarRequisicao(req, res) {
 
       return responderJSON(res, 201, novoAgendamento);
     } catch (erro) {
+      await conexao.query('ROLLBACK').catch(() => {});
+      console.error('Erro ao agendar:', erro.message);
       return responderJSON(res, 500, { erro: 'Erro ao processar o agendamento.' });
+    } finally {
+      conexao.release(); // devolve a conexão pro banco
     }
   }
 
   // API: mudar o status de um agendamento (atendido, cancelado ou de volta pra agendado)
   // Exemplo: POST /api/agendamentos/5/status  com  { "status": "atendido" }
   if (req.method === 'POST' && /^\/api\/agendamentos\/\d+\/status$/.test(rota)) {
+    if (!verificarSenhaBarbeiro(req)) return responderJSON(res, 401, { erro: 'Acesso negado.' });
     const id = Number(rota.split('/')[3]);
     const dados = await lerCorpo(req);
     const permitidos = ['agendado', 'atendido', 'cancelado'];
@@ -450,6 +654,7 @@ async function tratarRequisicao(req, res) {
 
   // API antiga de cancelar: agora não apaga mais, só marca como cancelado
   if (req.method === 'DELETE' && rota.startsWith('/api/agendamentos/')) {
+    if (!verificarSenhaBarbeiro(req)) return responderJSON(res, 401, { erro: 'Acesso negado.' });
     const id = Number(rota.split('/').pop());
     await banco.query(`UPDATE agendamentos SET status = 'cancelado' WHERE id = $1`, [id]);
     return responderJSON(res, 200, { ok: true });
