@@ -88,6 +88,7 @@ main {
     border: 1px solid var(--line);
     border-radius: 6px;
     padding: 20px;
+    min-width: 0; /* deixa o quadro encolher no celular (senão a tabela estica a página) */
 }
 
 .card h2 {
@@ -236,6 +237,78 @@ tr:hover td {
 .btn-cancelar:hover {
     background: var(--burgundy);
     color: var(--cream);
+}
+
+/* ---------- Status do agendamento (página do barbeiro) ---------- */
+.acoes {
+    white-space: nowrap;
+}
+
+.btn-atendido,
+.btn-desfazer {
+    background: transparent;
+    padding: 6px 10px;
+    font-size: 11px;
+    border-radius: 4px;
+    margin-right: 4px;
+}
+
+.btn-atendido {
+    border: 1px solid #3FA66B;
+    color: #3FA66B;
+}
+
+.btn-atendido:hover {
+    background: #3FA66B;
+    color: var(--cream);
+}
+
+.btn-desfazer {
+    border: 1px solid var(--line);
+    color: var(--cream);
+    opacity: 0.7;
+}
+
+.btn-desfazer:hover {
+    opacity: 1;
+}
+
+.status {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    text-transform: capitalize;
+}
+
+.status-agendado {
+    background: rgba(201, 162, 39, 0.2);
+    color: var(--gold);
+}
+
+.status-atendido {
+    background: rgba(63, 166, 107, 0.2);
+    color: #5CC48A;
+}
+
+.status-cancelado {
+    background: rgba(139, 38, 53, 0.3);
+    color: #E07A88;
+}
+
+/* Linha cancelada fica apagadinha e riscada (menos o status e os botões) */
+.linha-cancelado td:not(.acoes):not(:nth-child(8)) {
+    opacity: 0.45;
+    text-decoration: line-through;
+}
+
+/* No celular a tabela rola de lado dentro do quadro, em vez de vazar da tela */
+#tabelaWrap {
+    overflow-x: auto;
+}
+
+#tabelaWrap td {
+    white-space: nowrap;
 }
 
 .tag {

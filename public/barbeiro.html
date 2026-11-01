@@ -55,11 +55,22 @@
             return `${dia}/${mes}/${ano}`;
         }
 
+        // Quais botões aparecem em cada linha, dependendo do status
+        function botoesDoStatus(a) {
+            if (a.status === 'agendado') {
+                return `<button class="btn-atendido" data-id="${a.id}" data-novo-status="atendido">atendido</button>
+                        <button class="btn-cancelar" data-id="${a.id}" data-novo-status="cancelado">cancelar</button>`;
+            }
+            // Atendido ou cancelado: dá pra desfazer se clicou errado
+            return `<button class="btn-desfazer" data-id="${a.id}" data-novo-status="agendado">desfazer</button>`;
+        }
+
         async function carregarAgenda() {
             const params = new URLSearchParams();
             if (filtroBarbeiro.value) params.set('barbeiro', filtroBarbeiro.value);
             if (filtroData.value) params.set('data', filtroData.value);
 
+            params.set('todos', '1'); // mostra também os cancelados
             const lista = await fetch(`/api/agendamentos?${params}`).then(r => r.json());
 
             if (lista.length === 0) {
@@ -71,12 +82,12 @@
         <table>
           <thead>
             <tr>
-              <th>Data</th><th>Hora</th><th>Cliente</th><th>Telefone</th><th>Barbeiro</th><th>Serviço</th><th>Preço</th><th></th>
+              <th>Data</th><th>Hora</th><th>Cliente</th><th>Telefone</th><th>Barbeiro</th><th>Serviço</th><th>Preço</th><th>Status</th><th></th>
             </tr>
           </thead>
           <tbody>
             ${lista.map(a => `
-              <tr>
+              <tr class="linha-${a.status}">
                 <td>${formatarData(a.data)}</td>
                 <td>${a.hora}</td>
                 <td>${a.cliente}</td>
@@ -84,17 +95,29 @@
                 <td>${a.barbeiro}</td>
                 <td>${a.servico}</td>
                 <td>R$${a.preco}</td>
-                <td><button class="btn-cancelar" data-id="${a.id}">cancelar</button></td>
+                <td><span class="status status-${a.status}">${a.status}</span></td>
+                <td class="acoes">${botoesDoStatus(a)}</td>
               </tr>
             `).join('')}
           </tbody>
         </table>
       `;
 
-            tabelaWrap.querySelectorAll('.btn-cancelar').forEach(btn => {
+            // Cada botão tem o id do agendamento e o status novo que ele aplica
+            tabelaWrap.querySelectorAll('[data-novo-status]').forEach(btn => {
                 btn.addEventListener('click', async () => {
-                    if (!confirm('Cancelar esse agendamento?')) return;
-                    await fetch(`/api/agendamentos/${btn.dataset.id}`, { method: 'DELETE' });
+                    const novo = btn.dataset.novoStatus;
+                    if (novo === 'cancelado' && !confirm('Cancelar esse agendamento?')) return;
+
+                    const resposta = await fetch(`/api/agendamentos/${btn.dataset.id}/status`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ status: novo })
+                    });
+                    if (!resposta.ok) {
+                        const erro = await resposta.json();
+                        alert(erro.erro || 'Não deu pra mudar o status.');
+                    }
                     carregarAgenda();
                 });
             });

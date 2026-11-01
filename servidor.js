@@ -145,6 +145,10 @@ async function prepararBanco() {
     );
   `);
 
+  // Coluna nova: status do agendamento ('agendado', 'atendido' ou 'cancelado').
+  // Em vez de apagar, agora a gente só muda o status - assim fica o histórico.
+  await banco.query(`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'agendado'`);
+
   // Se o banco ainda não tem barbeiros, copia do barbeiros.json
   const { rows: qtdBarbeiros } = await banco.query('SELECT COUNT(*)::int AS total FROM barbeiros');
   if (qtdBarbeiros[0].total === 0 && fs.existsSync(ARQ_BARBEIROS)) {
@@ -175,9 +179,9 @@ function lerJSON(caminho) {
 
 // ---------- Regra de conflito de horário (mesma lógica de antes) ----------
 async function horarioDisponivel(novo) {
-  // Pega só os agendamentos daquele barbeiro naquele dia
+  // Pega só os agendamentos daquele barbeiro naquele dia (cancelados liberam o horário)
   const { rows: agendamentos } = await banco.query(
-    'SELECT * FROM agendamentos WHERE barbeiro = $1 AND data = $2',
+    `SELECT * FROM agendamentos WHERE barbeiro = $1 AND data = $2 AND status <> 'cancelado'`,
     [novo.barbeiro, novo.data]
   );
   const inicioNovo = new Date(`${novo.data}T${novo.hora}`);
@@ -344,10 +348,14 @@ async function tratarRequisicao(req, res) {
   if (req.method === 'GET' && rota === '/api/agendamentos') {
     const barbeiroF = url.searchParams.get('barbeiro');
     const dataF = url.searchParams.get('data');
+    // A página do cliente não precisa ver os cancelados (eles liberam o horário).
+    // A página do barbeiro pede com ?todos=1 pra mostrar tudo.
+    const mostrarTodos = url.searchParams.get('todos') === '1';
 
     // Monta o filtro só com o que veio na URL
     const condicoes = [];
     const valores = [];
+    if (!mostrarTodos) condicoes.push(`status <> 'cancelado'`);
     if (barbeiroF) {
       valores.push(barbeiroF);
       condicoes.push(`barbeiro = $${valores.length}`);
@@ -359,7 +367,7 @@ async function tratarRequisicao(req, res) {
     const where = condicoes.length ? `WHERE ${condicoes.join(' AND ')}` : '';
 
     const { rows } = await banco.query(
-      `SELECT id, cliente, telefone, email, barbeiro, servico, duracao, preco, data, hora
+      `SELECT id, cliente, telefone, email, barbeiro, servico, duracao, preco, data, hora, status
        FROM agendamentos ${where} ORDER BY data, hora`,
       valores
     );
@@ -415,10 +423,35 @@ async function tratarRequisicao(req, res) {
     }
   }
 
-  // API: cancelar agendamento
+  // API: mudar o status de um agendamento (atendido, cancelado ou de volta pra agendado)
+  // Exemplo: POST /api/agendamentos/5/status  com  { "status": "atendido" }
+  if (req.method === 'POST' && /^\/api\/agendamentos\/\d+\/status$/.test(rota)) {
+    const id = Number(rota.split('/')[3]);
+    const dados = await lerCorpo(req);
+    const permitidos = ['agendado', 'atendido', 'cancelado'];
+    if (!permitidos.includes(dados.status)) {
+      return responderJSON(res, 400, { erro: 'Status inválido.' });
+    }
+
+    const { rows } = await banco.query('SELECT * FROM agendamentos WHERE id = $1', [id]);
+    const agendamento = rows[0];
+    if (!agendamento) return responderJSON(res, 404, { erro: 'Agendamento não encontrado.' });
+
+    // Se for desfazer um cancelamento, o horário pode já ter sido pego por outro cliente
+    if (agendamento.status === 'cancelado' && dados.status !== 'cancelado') {
+      if (!(await horarioDisponivel(agendamento))) {
+        return responderJSON(res, 409, { erro: 'Esse horário já foi ocupado por outro agendamento.' });
+      }
+    }
+
+    await banco.query('UPDATE agendamentos SET status = $1 WHERE id = $2', [dados.status, id]);
+    return responderJSON(res, 200, { ok: true });
+  }
+
+  // API antiga de cancelar: agora não apaga mais, só marca como cancelado
   if (req.method === 'DELETE' && rota.startsWith('/api/agendamentos/')) {
     const id = Number(rota.split('/').pop());
-    await banco.query('DELETE FROM agendamentos WHERE id = $1', [id]);
+    await banco.query(`UPDATE agendamentos SET status = 'cancelado' WHERE id = $1`, [id]);
     return responderJSON(res, 200, { ok: true });
   }
 
