@@ -167,7 +167,11 @@
         // Quais botões aparecem em cada linha, dependendo do status
         function botoesDoStatus(a) {
             if (a.status === 'agendado') {
-                return `<button class="btn-atendido" data-id="${a.id}" data-novo-status="atendido">atendido</button>
+                // "Atendido" só aparece a partir do dia do agendamento (no futuro, só dá pra cancelar)
+                const botaoAtendido = a.data <= hojeISO()
+                    ? `<button class="btn-atendido" data-id="${a.id}" data-novo-status="atendido">atendido</button>`
+                    : '';
+                return `${botaoAtendido}
                         <button class="btn-cancelar" data-id="${a.id}" data-novo-status="cancelado">cancelar</button>`;
             }
             // Atendido ou cancelado: dá pra desfazer se clicou errado

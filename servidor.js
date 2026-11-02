@@ -806,6 +806,12 @@ async function tratarRequisicao(req, res) {
       return responderJSON(res, 403, { erro: 'Esse agendamento é de outro barbeiro.' });
     }
 
+    // Não dá pra marcar como atendido um agendamento de um dia que ainda não chegou
+    // (senão o faturamento do histórico conta dinheiro que ainda não entrou)
+    if (dados.status === 'atendido' && agendamento.data > agoraNoBrasil().data) {
+      return responderJSON(res, 400, { erro: 'Só dá pra marcar como atendido no dia do agendamento.' });
+    }
+
     // Se for desfazer um cancelamento, o horário pode já ter sido pego por outro cliente
     if (agendamento.status === 'cancelado' && dados.status !== 'cancelado') {
       if (!(await horarioDisponivel(agendamento))) {

@@ -206,7 +206,7 @@
                 const passo = Math.ceil(itens.length / 12);
                 grafico.innerHTML = `
                     <div class="grafico-eixo">
-                        <span>${maximo}</span><span>${Math.round(maximo / 2)}</span><span>0</span>
+                        <span>${maximo}</span><span>${maximo % 2 === 0 ? maximo / 2 : ''}</span><span>0</span>
                     </div>
                     <div class="grafico-area">
                         <div class="grafico-grade"><i></i><i></i><i></i></div>
