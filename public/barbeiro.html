@@ -93,7 +93,7 @@
                     <select id="filtroBarbeiro"><option value="">Todos</option></select>
                 </div>
                 <div>
-                    <label for="filtroData">Data</label>
+                    <label for="filtroData">Data <span class="dica-inline">(vazio = de hoje em diante)</span></label>
                     <input type="date" id="filtroData">
                 </div>
             </div>
@@ -181,7 +181,9 @@
         async function carregarAgenda() {
             const params = new URLSearchParams();
             if (filtroBarbeiro.value) params.set('barbeiro', filtroBarbeiro.value);
+            // Sem data escolhida: mostra de hoje em diante (senão a agenda vira uma lista sem fim do passado)
             if (filtroData.value) params.set('data', filtroData.value);
+            else params.set('desde', hojeISO());
 
             params.set('todos', '1'); // mostra também os cancelados
             const resposta = await fetch(`/api/agendamentos?${params}`);

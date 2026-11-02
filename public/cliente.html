@@ -61,7 +61,7 @@
                 <div class="full">
                     <label>Horário</label>
                     <div id="gradeHorarios" class="grade-horarios">
-                        <p class="vazio" style="padding:0;">Escolha barbeiro, serviço e data primeiro.</p>
+                        <p class="vazio" style="padding:0; grid-column:1/-1;">Escolha barbeiro, serviço e data primeiro.</p>
                     </div>
                     <input type="hidden" id="hora" required>
                 </div>
@@ -168,11 +168,11 @@
             hora.value = '';
 
             if (!inputData.value || !selectBarbeiro.value || !selectServico.value) {
-                gradeHorarios.innerHTML = '<p class="vazio" style="padding:0;">Escolha barbeiro, serviço e data primeiro.</p>';
+                gradeHorarios.innerHTML = '<p class="vazio" style="padding:0; grid-column:1/-1;">Escolha barbeiro, serviço e data primeiro.</p>';
                 return;
             }
 
-            gradeHorarios.innerHTML = '<p class="vazio" style="padding:0;">Carregando horários...</p>';
+            gradeHorarios.innerHTML = '<p class="vazio" style="padding:0; grid-column:1/-1;">Carregando horários...</p>';
 
             const servicoEscolhido = servicos.find(s => s.nome === selectServico.value);
             const duracao = servicoEscolhido ? servicoEscolhido.duracao : 30;
@@ -224,7 +224,7 @@
             }
 
             if (!algumDisponivel) {
-                gradeHorarios.innerHTML = '<p class="vazio" style="padding:0;">Nenhum horário disponível nesse dia.</p>';
+                gradeHorarios.innerHTML = '<p class="vazio" style="padding:0; grid-column:1/-1;">Nenhum horário disponível nesse dia.</p>';
             }
         }
 

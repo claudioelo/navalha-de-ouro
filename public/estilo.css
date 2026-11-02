@@ -124,6 +124,7 @@ label {
 
 input,
 select {
+    color-scheme: dark; /* ícones do calendário/relógio claros, combinando com o fundo escuro */
     width: 100%;
     padding: 10px;
     background: var(--navy);
@@ -719,4 +720,10 @@ tr:hover td {
     height: 100%;
     border-radius: 3px;
     background: var(--gold);
+}
+
+.dica-inline {
+    text-transform: none;
+    letter-spacing: 0;
+    opacity: 0.6;
 }

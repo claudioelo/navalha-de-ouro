@@ -682,6 +682,7 @@ async function tratarRequisicao(req, res) {
   if (req.method === 'GET' && rota === '/api/agendamentos') {
     let barbeiroF = url.searchParams.get('barbeiro');
     const dataF = url.searchParams.get('data');
+    const desdeF = url.searchParams.get('desde'); // ex: desde=2026-11-02 -> de hoje em diante
     // Admin e recepção veem os detalhes de todos. Quem não tem login (página do cliente)
     // só fica sabendo quais horários estão ocupados - sem nome nem telefone de ninguém.
     let temLogin = verificarSenhaBarbeiro(req);
@@ -705,6 +706,10 @@ async function tratarRequisicao(req, res) {
     if (dataF) {
       valores.push(dataF);
       condicoes.push(`data = $${valores.length}`);
+    }
+    if (desdeF) {
+      valores.push(desdeF);
+      condicoes.push(`data >= $${valores.length}`);
     }
     const where = condicoes.length ? `WHERE ${condicoes.join(' AND ')}` : '';
 
