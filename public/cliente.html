@@ -310,6 +310,18 @@
             }
         });
 
+        // Formata o telefone enquanto a pessoa digita: 43988365410 -> (43) 98836-5410
+        function mascaraTelefone(input) {
+            input.addEventListener('input', () => {
+                const d = input.value.replace(/\D/g, '').slice(0, 11);
+                let v = d;
+                if (d.length > 2) v = `(${d.slice(0, 2)}) ${d.slice(2)}`;
+                if (d.length > 6) v = `(${d.slice(0, 2)}) ${d.slice(2, d.length - 4)}-${d.slice(-4)}`;
+                input.value = v;
+            });
+        }
+
+        mascaraTelefone(document.getElementById('telefone'));
         carregarOpcoes();
     </script>
 </body>

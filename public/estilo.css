@@ -354,6 +354,26 @@ tr:hover td {
     display: none;
 }
 
+/* Link com cara de botão (atalho entre admin e agenda) */
+.link-botao {
+    display: inline-block;
+    text-decoration: none;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-family: 'Oswald', sans-serif;
+}
+
+/* Telefone que abre o WhatsApp */
+.link-zap {
+    color: #5CC48A;
+    text-decoration: none;
+    border-bottom: 1px dashed rgba(92, 196, 138, 0.5);
+}
+
+.link-zap:hover {
+    color: #7EE0A8;
+}
+
 /* No celular a tabela rola de lado dentro do quadro, em vez de vazar da tela */
 #tabelaWrap {
     overflow-x: auto;
