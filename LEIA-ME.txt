@@ -90,6 +90,19 @@ No /barbeiro, botão "+ novo agendamento".
 - Na agenda aparece a etiqueta "balcão" (os do site não têm etiqueta)
 
 
+HISTÓRICO (só o dono) - /historico
+------------------------------------
+Atalho no /admin: "histórico →".
+- Períodos rápidos (hoje, 7 dias, este mês, mês passado, este ano) ou escolhe as datas
+- Atendimentos, faturamento, ticket médio, cancelados, sem baixa e a acontecer
+- Gráfico por dia (ou por mês, se o período passar de 2 meses) - passe o mouse/toque na barra
+- Tabela por barbeiro e por serviço, e quantos vieram do site x balcão
+- Faturamento conta SÓ o que foi marcado como "atendido"
+- "Sem baixa" = horário que já passou e ninguém marcou atendido nem cancelado.
+  Se esse número estiver alto, os barbeiros estão esquecendo de dar baixa
+  (e o faturamento fica menor do que o real).
+
+
 CONFIGURAÇÃO DA AGENDA (dados/configuracao.json)
 --------------------------------------------------
 diasFechados            -> dias que não abre (0 = domingo, 1 = segunda ... 6 = sábado)
@@ -119,5 +132,7 @@ ESTRUTURA DOS ARQUIVOS
 servidor.js          -> o back-end (rotas, regras de conflito de horário, e-mail)
 public/cliente.html  -> tela onde o cliente agenda
 public/barbeiro.html -> tela onde o barbeiro acompanha (atualiza sozinha a cada 10s)
+public/historico.html -> relatório do dono (/historico)
+public/admin.html    -> cadastro de barbeiros, serviços e acessos (/admin)
 public/estilo.css    -> visual de todas as páginas
 dados/configuracao.json -> horário de funcionamento (o resto fica no banco Neon)

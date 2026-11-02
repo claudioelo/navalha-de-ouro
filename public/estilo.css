@@ -523,3 +523,200 @@ tr:hover td {
         grid-template-columns: repeat(3, 1fr);
     }
 }
+
+/* ---------- Histórico ---------- */
+.periodos {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.periodos .ativo {
+    border-color: var(--gold);
+    color: var(--gold);
+    opacity: 1;
+}
+
+/* Quadrinhos com os números */
+.numeros {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr); /* 3 por linha no PC */
+    gap: 12px;
+}
+
+@media (max-width: 600px) {
+    .numeros {
+        grid-template-columns: repeat(2, 1fr); /* 2 por linha no celular */
+    }
+}
+
+.numero {
+    min-width: 0;
+    background: var(--navy-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 14px 16px;
+}
+
+.numero-rotulo {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    opacity: 0.7;
+}
+
+.numero-valor {
+    font-family: 'Oswald', sans-serif;
+    font-size: clamp(20px, 5vw, 28px);
+    margin-top: 4px;
+    color: var(--cream);
+    white-space: nowrap;
+}
+
+.numero-sub {
+    font-size: 11px;
+    opacity: 0.5;
+    min-height: 14px;
+}
+
+/* Gráfico de barras */
+.grafico {
+    display: flex;
+    gap: 8px;
+    height: 220px;
+    padding-bottom: 22px; /* espaço dos rótulos embaixo */
+}
+
+.grafico-eixo {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    font-size: 11px;
+    opacity: 0.5;
+    text-align: right;
+    min-width: 20px;
+    transform: translateY(-6px);
+}
+
+.grafico-area {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+}
+
+.grafico-grade {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    pointer-events: none;
+}
+
+.grafico-grade i {
+    border-top: 1px solid var(--line);
+    opacity: 0.6;
+}
+
+.grafico-barras {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+.coluna {
+    position: relative;
+    flex: 1;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    cursor: pointer;
+    outline: none;
+}
+
+.barra {
+    width: 100%;
+    max-width: 28px;
+    background: var(--gold);
+    border-radius: 4px 4px 0 0; /* arredondado só em cima, preso na base */
+    position: relative;
+    transition: opacity 0.15s;
+}
+
+.grafico-barras:hover .coluna:not(:hover) .barra {
+    opacity: 0.55;
+}
+
+.coluna.em-foco .barra {
+    opacity: 1;
+}
+
+.barra-valor {
+    position: absolute;
+    top: -18px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: var(--cream);
+}
+
+.coluna-rotulo {
+    position: absolute;
+    bottom: -20px;
+    font-size: 10px;
+    opacity: 0.6;
+    white-space: nowrap;
+}
+
+.dica-flutuante {
+    position: absolute;
+    z-index: 10;
+    background: var(--navy);
+    border: 1px solid var(--gold);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    pointer-events: none;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.tabela-detalhe {
+    margin-top: 16px;
+    font-size: 13px;
+}
+
+.tabela-detalhe summary {
+    cursor: pointer;
+    opacity: 0.7;
+}
+
+.tabela-rolavel {
+    overflow-x: auto;
+}
+
+.tabela-rolavel td {
+    white-space: nowrap;
+}
+
+/* Barrinha dentro da tabela de barbeiros */
+.mini-barra {
+    display: inline-block;
+    width: 60px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--line);
+    vertical-align: middle;
+    margin-right: 6px;
+}
+
+.mini-barra i {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--gold);
+}

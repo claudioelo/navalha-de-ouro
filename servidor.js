@@ -522,6 +522,12 @@ async function tratarRequisicao(req, res) {
     return servirArquivoEstatico(res, path.join(PASTA_PUBLIC, 'admin.html'));
   }
 
+  // Página do histórico (só o dono: tem faturamento)
+  if (req.method === 'GET' && rota === '/historico') {
+    if (!verificarSenhaAdmin(req)) return pedirSenhaAdmin(res);
+    return servirArquivoEstatico(res, path.join(PASTA_PUBLIC, 'historico.html'));
+  }
+
   // API: barbeiros e serviços (pra preencher os selects)
   if (req.method === 'GET' && rota === '/api/barbeiros') {
     return responderJSON(res, 200, await listarBarbeiros());
@@ -590,6 +596,25 @@ async function tratarRequisicao(req, res) {
     await banco.query('DELETE FROM barbeiros WHERE nome = $1', [nome]);
     esquecerLogins();
     return responderJSON(res, 200, await listarBarbeiros());
+  }
+
+  // API (admin): histórico/relatório de um período  ->  /api/historico?de=2026-11-01&ate=2026-11-30
+  if (req.method === 'GET' && rota === '/api/historico') {
+    if (!verificarSenhaAdmin(req)) return responderJSON(res, 401, { erro: 'Acesso negado.' });
+    const de = url.searchParams.get('de') || '';
+    const ate = url.searchParams.get('ate') || '';
+    const formato = /^\d{4}-\d{2}-\d{2}$/;
+    if (!formato.test(de) || !formato.test(ate) || de > ate) {
+      return responderJSON(res, 400, { erro: 'Período inválido.' });
+    }
+    if (diasAte(de, ate) > 366) return responderJSON(res, 400, { erro: 'Período máximo: 1 ano.' });
+
+    const { rows } = await banco.query(
+      `SELECT data, hora, duracao, barbeiro, servico, preco, status, origem
+       FROM agendamentos WHERE data >= $1 AND data <= $2 ORDER BY data, hora`,
+      [de, ate]
+    );
+    return responderJSON(res, 200, montarHistorico(rows, de, ate));
   }
 
   // API: quem sou eu? (a página do barbeiro usa pra se adaptar)
@@ -807,6 +832,66 @@ async function tratarRequisicao(req, res) {
 
   res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end('Rota não encontrada');
+}
+
+// ---------- Monta os números do histórico ----------
+// Recebe os agendamentos do período e devolve tudo já somado.
+// "Sem baixa" = horário que já passou e ninguém marcou como atendido nem cancelado
+// (o cliente faltou, ou o barbeiro esqueceu de marcar).
+function montarHistorico(agendamentos, de, ate) {
+  const agora = agoraNoBrasil();
+  const jaPassou = (a) => a.data < agora.data ||
+    (a.data === agora.data && horaParaMinutos(a.hora) + a.duracao <= agora.minutos);
+
+  const vazio = () => ({ atendidos: 0, faturamento: 0, cancelados: 0, semBaixa: 0, agendados: 0 });
+  const total = vazio();
+  const porBarbeiro = {};
+  const porServico = {};
+  const porDia = {};
+  const porOrigem = { site: 0, balcao: 0 };
+
+  // Todos os dias do período aparecem no gráfico, mesmo os que tiveram zero
+  for (let d = de; d <= ate; d = new Date(Date.parse(`${d}T12:00:00Z`) + 86400000).toISOString().slice(0, 10)) {
+    porDia[d] = { atendidos: 0, faturamento: 0 };
+  }
+
+  for (const a of agendamentos) {
+    const b = (porBarbeiro[a.barbeiro] ||= vazio());
+    const s = (porServico[a.servico] ||= { atendidos: 0, faturamento: 0 });
+    porOrigem[a.origem === 'balcao' ? 'balcao' : 'site']++;
+
+    let tipo;
+    if (a.status === 'atendido') tipo = 'atendidos';
+    else if (a.status === 'cancelado') tipo = 'cancelados';
+    else tipo = jaPassou(a) ? 'semBaixa' : 'agendados'; // 'agendados' = ainda vai acontecer
+
+    total[tipo]++;
+    b[tipo]++;
+    if (tipo === 'atendidos') {
+      total.faturamento += a.preco;
+      b.faturamento += a.preco;
+      s.atendidos++;
+      s.faturamento += a.preco;
+      porDia[a.data].atendidos++;
+      porDia[a.data].faturamento += a.preco;
+    }
+  }
+
+  const arredondar = (n) => Math.round(n * 100) / 100; // evita 34.999999 em dinheiro
+  total.faturamento = arredondar(total.faturamento);
+  total.ticketMedio = total.atendidos ? arredondar(total.faturamento / total.atendidos) : 0;
+
+  return {
+    de, ate, total, porOrigem,
+    porBarbeiro: Object.entries(porBarbeiro)
+      .map(([nome, n]) => ({ nome, ...n, faturamento: arredondar(n.faturamento) }))
+      .sort((x, y) => y.atendidos - x.atendidos || y.faturamento - x.faturamento),
+    porServico: Object.entries(porServico)
+      .filter(([, n]) => n.atendidos > 0)
+      .map(([nome, n]) => ({ nome, ...n, faturamento: arredondar(n.faturamento) }))
+      .sort((x, y) => y.atendidos - x.atendidos),
+    porDia: Object.entries(porDia).map(([data, n]) => ({ data, ...n, faturamento: arredondar(n.faturamento) }))
+  };
 }
 
 // ---------- Funções que buscam listas no banco ----------

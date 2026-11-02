@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navalha de Ouro — Histórico</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/estilo.css">
+</head>
+
+<body>
+    <div class="stripes"></div>
+    <header>
+        <h1>Navalha de Ouro</h1>
+        <div class="sub">Histórico</div>
+    </header>
+
+    <main>
+        <div class="barra-usuario">
+            <span>Logado como <strong>Administrador</strong></span>
+            <span class="acoes">
+                <a class="btn-desfazer link-botao" href="/admin">← administração</a>
+                <a class="btn-desfazer link-botao" href="/barbeiro">ver agenda →</a>
+            </span>
+        </div>
+
+        <!-- Período -->
+        <section class="card">
+            <div class="periodos" id="periodos">
+                <button type="button" class="btn-desfazer" data-periodo="hoje">Hoje</button>
+                <button type="button" class="btn-desfazer" data-periodo="7dias">7 dias</button>
+                <button type="button" class="btn-desfazer" data-periodo="mes">Este mês</button>
+                <button type="button" class="btn-desfazer" data-periodo="mesPassado">Mês passado</button>
+                <button type="button" class="btn-desfazer" data-periodo="ano">Este ano</button>
+            </div>
+            <div class="filtros" style="margin-bottom:0;">
+                <div>
+                    <label for="de">De</label>
+                    <input type="date" id="de">
+                </div>
+                <div>
+                    <label for="ate">Até</label>
+                    <input type="date" id="ate">
+                </div>
+            </div>
+            <p class="msg" id="msgErro"></p>
+        </section>
+
+        <!-- Números principais -->
+        <section class="numeros" id="numeros"></section>
+
+        <!-- Gráfico -->
+        <section class="card">
+            <h2 id="tituloGrafico">Atendimentos por dia</h2>
+            <div id="grafico" class="grafico"></div>
+            <details class="tabela-detalhe">
+                <summary>Ver os números em tabela</summary>
+                <div id="tabelaDias"></div>
+            </details>
+        </section>
+
+        <!-- Por barbeiro -->
+        <section class="card">
+            <h2>Por barbeiro</h2>
+            <div id="tabelaBarbeiros" class="tabela-rolavel"></div>
+            <p class="dica"><strong>Sem baixa</strong> = o horário já passou e ninguém marcou como atendido nem
+                cancelado (cliente faltou ou o barbeiro esqueceu de marcar). <strong>A acontecer</strong> = agendado
+                pra frente.</p>
+        </section>
+
+        <!-- Por serviço -->
+        <section class="card">
+            <h2>Por serviço</h2>
+            <div id="tabelaServicos" class="tabela-rolavel"></div>
+            <p class="dica" id="origem"></p>
+        </section>
+    </main>
+
+    <div class="dica-flutuante" id="dicaFlutuante" hidden></div>
+
+    <script>
+        // SEGURANÇA: mostra os textos como texto puro, nunca como código
+        function esc(valor) {
+            return String(valor ?? '')
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        const reais = (n) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        const nomesMeses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+        function iso(d) {
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+
+        function formatarData(isoData) {
+            const [ano, mes, dia] = isoData.split('-');
+            return `${dia}/${mes}/${ano}`;
+        }
+
+        // ---------- Botões de período rápido ----------
+        function definirPeriodo(tipo) {
+            const hoje = new Date();
+            let de = new Date(hoje), ate = new Date(hoje);
+            if (tipo === '7dias') de.setDate(hoje.getDate() - 6);
+            if (tipo === 'mes') de = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+            if (tipo === 'mesPassado') {
+                de = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1);
+                ate = new Date(hoje.getFullYear(), hoje.getMonth(), 0); // último dia do mês passado
+            }
+            if (tipo === 'ano') de = new Date(hoje.getFullYear(), 0, 1);
+            document.getElementById('de').value = iso(de);
+            document.getElementById('ate').value = iso(ate);
+            document.querySelectorAll('#periodos button').forEach(b =>
+                b.classList.toggle('ativo', b.dataset.periodo === tipo));
+            carregar();
+        }
+
+        document.querySelectorAll('#periodos button').forEach(b =>
+            b.addEventListener('click', () => definirPeriodo(b.dataset.periodo)));
+
+        ['de', 'ate'].forEach(id => document.getElementById(id).addEventListener('change', () => {
+            document.querySelectorAll('#periodos button').forEach(b => b.classList.remove('ativo'));
+            carregar();
+        }));
+
+        // ---------- Busca os números no servidor ----------
+        async function carregar() {
+            const de = document.getElementById('de').value;
+            const ate = document.getElementById('ate').value;
+            const msg = document.getElementById('msgErro');
+            if (!de || !ate) return;
+
+            const resposta = await fetch(`/api/historico?de=${de}&ate=${ate}`);
+            const dados = await resposta.json().catch(() => ({}));
+            if (!resposta.ok) {
+                msg.className = 'msg erro';
+                msg.textContent = dados.erro || 'Não deu pra carregar o histórico.';
+                return;
+            }
+            msg.className = 'msg';
+            msg.textContent = '';
+
+            mostrarNumeros(dados.total);
+            mostrarGrafico(dados.porDia);
+            mostrarBarbeiros(dados.porBarbeiro);
+            mostrarServicos(dados.porServico, dados.porOrigem);
+        }
+
+        // ---------- Quadrinhos com os números principais ----------
+        function mostrarNumeros(t) {
+            const totalFechado = t.atendidos + t.cancelados;
+            const taxaCancel = totalFechado ? Math.round((t.cancelados / totalFechado) * 100) : 0;
+            const quadros = [
+                ['Atendimentos', t.atendidos, ''],
+                ['Faturamento', reais(t.faturamento), 'só atendidos'],
+                ['Ticket médio', reais(t.ticketMedio), 'por atendimento'],
+                ['Cancelados', t.cancelados, totalFechado ? `${taxaCancel}% dos fechados` : ''],
+                ['Sem baixa', t.semBaixa, t.semBaixa ? 'faltou ou esqueceram de marcar' : 'tudo marcado'],
+                ['A acontecer', t.agendados, 'agendados pra frente']
+            ];
+            document.getElementById('numeros').innerHTML = quadros.map(([rotulo, valor, sub]) => `
+                <div class="numero">
+                    <div class="numero-rotulo">${rotulo}</div>
+                    <div class="numero-valor">${esc(valor)}</div>
+                    <div class="numero-sub">${esc(sub)}</div>
+                </div>`).join('');
+        }
+
+        // ---------- Gráfico de barras (uma série só: atendimentos) ----------
+        // Período grande (mais de 2 meses): junta por mês pra não ficar barra fininha demais
+        function agruparPorMes(dias) {
+            const meses = {};
+            for (const d of dias) {
+                const chave = d.data.slice(0, 7);
+                meses[chave] ||= { data: chave, atendidos: 0, faturamento: 0 };
+                meses[chave].atendidos += d.atendidos;
+                meses[chave].faturamento += d.faturamento;
+            }
+            return Object.values(meses);
+        }
+
+        function rotuloBarra(item, porMes) {
+            if (porMes) {
+                const [ano, mes] = item.data.split('-');
+                return `${nomesMeses[Number(mes) - 1]}/${ano.slice(2)}`;
+            }
+            return item.data.slice(8); // só o dia
+        }
+
+        function mostrarGrafico(porDia) {
+            const porMes = porDia.length > 62;
+            const itens = porMes ? agruparPorMes(porDia) : porDia;
+            document.getElementById('tituloGrafico').textContent = porMes ? 'Atendimentos por mês' : 'Atendimentos por dia';
+
+            const maximo = Math.max(...itens.map(i => i.atendidos), 0);
+            const grafico = document.getElementById('grafico');
+            if (maximo === 0) {
+                grafico.innerHTML = '<p class="vazio">Nenhum atendimento nesse período.</p>';
+            } else {
+                // Rótulo embaixo só de vez em quando, pra não encavalar
+                const passo = Math.ceil(itens.length / 12);
+                grafico.innerHTML = `
+                    <div class="grafico-eixo">
+                        <span>${maximo}</span><span>${Math.round(maximo / 2)}</span><span>0</span>
+                    </div>
+                    <div class="grafico-area">
+                        <div class="grafico-grade"><i></i><i></i><i></i></div>
+                        <div class="grafico-barras">
+                        ${itens.map((item, i) => `
+                            <div class="coluna" tabindex="0"
+                                 data-titulo="${esc(porMes ? rotuloBarra(item, true) : formatarData(item.data))}"
+                                 data-atendidos="${item.atendidos}" data-faturamento="${item.faturamento}">
+                                <div class="barra" style="height:${(item.atendidos / maximo) * 100}%"></div>
+                                <span class="coluna-rotulo">${i % passo === 0 ? esc(rotuloBarra(item, porMes)) : ''}</span>
+                            </div>`).join('')}
+                        </div>
+                    </div>`;
+                ativarDicas();
+            }
+
+            // A mesma informação em tabela (pra quem prefere número)
+            document.getElementById('tabelaDias').innerHTML = `
+                <table>
+                    <thead><tr><th>${porMes ? 'Mês' : 'Dia'}</th><th>Atendimentos</th><th>Faturamento</th></tr></thead>
+                    <tbody>${itens.filter(i => i.atendidos > 0).map(i => `
+                        <tr><td>${esc(porMes ? rotuloBarra(i, true) : formatarData(i.data))}</td>
+                            <td>${i.atendidos}</td><td>${reais(i.faturamento)}</td></tr>`).join('')
+                        || '<tr><td colspan="3">Nenhum atendimento.</td></tr>'}
+                    </tbody>
+                </table>`;
+        }
+
+        // Caixinha que aparece ao passar o mouse (ou tocar) numa barra
+        function ativarDicas() {
+            const dica = document.getElementById('dicaFlutuante');
+            document.querySelectorAll('#grafico .coluna').forEach(col => {
+                const mostrar = () => {
+                    const r = col.getBoundingClientRect();
+                    dica.innerHTML = `<strong>${esc(col.dataset.titulo)}</strong><br>
+                        ${col.dataset.atendidos} atendimento${col.dataset.atendidos === '1' ? '' : 's'}<br>
+                        ${reais(Number(col.dataset.faturamento))}`;
+                    dica.hidden = false;
+                    const largura = dica.offsetWidth;
+                    const esquerda = Math.min(Math.max(8, r.left + r.width / 2 - largura / 2), window.innerWidth - largura - 8);
+                    dica.style.left = `${esquerda}px`;
+                    dica.style.top = `${r.top + window.scrollY - dica.offsetHeight - 8}px`;
+                    col.classList.add('em-foco');
+                };
+                const esconder = () => { dica.hidden = true; col.classList.remove('em-foco'); };
+                col.addEventListener('mouseenter', mostrar);
+                col.addEventListener('focus', mostrar);
+                col.addEventListener('click', mostrar);
+                col.addEventListener('mouseleave', esconder);
+                col.addEventListener('blur', esconder);
+            });
+        }
+
+        // ---------- Tabela por barbeiro ----------
+        function mostrarBarbeiros(lista) {
+            const alvo = document.getElementById('tabelaBarbeiros');
+            if (!lista.length) {
+                alvo.innerHTML = '<p class="vazio">Nenhum agendamento nesse período.</p>';
+                return;
+            }
+            const maior = Math.max(...lista.map(b => b.atendidos), 1);
+            alvo.innerHTML = `
+                <table>
+                    <thead><tr><th>Barbeiro</th><th>Atendidos</th><th>Faturamento</th><th>Cancelados</th><th>Sem baixa</th><th>A acontecer</th></tr></thead>
+                    <tbody>${lista.map(b => `
+                        <tr>
+                            <td>${esc(b.nome)}</td>
+                            <td><span class="mini-barra"><i style="width:${(b.atendidos / maior) * 100}%"></i></span> ${b.atendidos}</td>
+                            <td>${reais(b.faturamento)}</td>
+                            <td>${b.cancelados}</td>
+                            <td>${b.semBaixa ? `<span class="status status-cancelado">${b.semBaixa}</span>` : '0'}</td>
+                            <td>${b.agendados}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>`;
+        }
+
+        // ---------- Tabela por serviço + de onde vieram ----------
+        function mostrarServicos(lista, origem) {
+            document.getElementById('tabelaServicos').innerHTML = lista.length ? `
+                <table>
+                    <thead><tr><th>Serviço</th><th>Atendidos</th><th>Faturamento</th></tr></thead>
+                    <tbody>${lista.map(s => `
+                        <tr><td>${esc(s.nome)}</td><td>${s.atendidos}</td><td>${reais(s.faturamento)}</td></tr>`).join('')}
+                    </tbody>
+                </table>` : '<p class="vazio">Nenhum atendimento nesse período.</p>';
+
+            const total = origem.site + origem.balcao;
+            document.getElementById('origem').innerHTML = total
+                ? `Agendamentos no período: <strong>${origem.site}</strong> pelo site e <strong>${origem.balcao}</strong> no balcão (${Math.round((origem.site / total) * 100)}% pelo site).`
+                : '';
+        }
+
+        definirPeriodo('mes'); // abre mostrando o mês atual
+    </script>
+</body>
+
+</html>
