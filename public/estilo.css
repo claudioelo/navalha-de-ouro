@@ -727,3 +727,36 @@ tr:hover td {
     letter-spacing: 0;
     opacity: 0.6;
 }
+
+/* ---------- Tela de login ---------- */
+.main-login {
+    max-width: 420px;
+}
+
+.campo-senha {
+    display: flex;
+    gap: 8px;
+}
+
+.campo-senha input {
+    flex: 1;
+}
+
+.campo-senha .btn-desfazer {
+    margin-right: 0;
+}
+
+.link-voltar {
+    color: var(--cream);
+    text-decoration: none;
+}
+
+#btnEntrar:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+/* Botão sair com o mesmo tamanho dos outros botões da barra */
+#btnSair {
+    padding: 6px 10px;
+}

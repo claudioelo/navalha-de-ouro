@@ -25,6 +25,7 @@
             <span class="acoes">
                 <a class="btn-desfazer link-botao" href="/admin">← administração</a>
                 <a class="btn-desfazer link-botao" href="/barbeiro">ver agenda →</a>
+                <button type="button" class="btn-cancelar" id="btnSair">sair</button>
             </span>
         </div>
 
@@ -136,6 +137,7 @@
             if (!de || !ate) return;
 
             const resposta = await fetch(`/api/historico?de=${de}&ate=${ate}`);
+            if (resposta.status === 401) { location.href = '/login?volta=/historico'; return; } // login venceu
             const dados = await resposta.json().catch(() => ({}));
             if (!resposta.ok) {
                 msg.className = 'msg erro';
@@ -299,6 +301,12 @@
                 ? `Agendamentos no período: <strong>${origem.site}</strong> pelo site e <strong>${origem.balcao}</strong> no balcão (${Math.round((origem.site / total) * 100)}% pelo site).`
                 : '';
         }
+
+        // Botão Sair: apaga o login e volta pra tela de entrar
+        document.getElementById('btnSair').addEventListener('click', async () => {
+            await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+            location.href = '/login';
+        });
 
         definirPeriodo('mes'); // abre mostrando o mês atual
     </script>

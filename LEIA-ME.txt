@@ -71,6 +71,10 @@ Depois de mudar qualquer variável: "Save, rebuild, and deploy".
 
 LOGINS
 --------
+Todo mundo entra pela tela /login (o /barbeiro, /admin e /historico mandam pra lá se não tiver logado).
+Fica logado por 30 dias no mesmo aparelho, ou até clicar em SAIR.
+Trocou a senha de alguém? O login antigo dessa pessoa para de valer na hora.
+
 Dono (admin)   -> ADMIN_USUARIO / ADMIN_SENHA no Render. Entra no /admin e no /barbeiro (vê tudo).
 Recepção       -> BARBEIRO_USUARIO / BARBEIRO_SENHA no Render. Entra no /barbeiro (vê todos os barbeiros).
 Cada barbeiro  -> o NOME dele + a senha que o dono definiu no /admin ("dar acesso").
@@ -114,10 +118,12 @@ diasAntecedenciaMaxima  -> até quantos dias pra frente o cliente pode agendar
 
 SEGURANÇA (o que o sistema já faz sozinho)
 --------------------------------------------
-- /admin e /barbeiro pedem senha; só o login do dono entra no /admin
+- /admin, /historico e /barbeiro pedem login (tela /login, com botão Sair); só o dono entra no /admin e /historico
+- O login fica num cookie protegido (HttpOnly, Secure); o banco guarda só o hash, nunca o crachá
 - Cada barbeiro tem login próprio (nome + senha) e só vê/mexe na agenda dele
 - Senhas dos barbeiros ficam embaralhadas (hash) no banco: ninguém consegue ler, só trocar
 - 10 senhas erradas em 15 min bloqueiam aquele IP por 15 min
+- Se o banco derrubar uma conexão parada, o servidor só registra no log e continua no ar
 - Cliente comum: no máximo 5 agendamentos a cada 15 min (evita agenda lotada de mentira)
 - O servidor confere tudo de novo: dia fechado, horário passado, fora do expediente,
   barbeiro/serviço que não existe, nome/telefone/e-mail inválidos

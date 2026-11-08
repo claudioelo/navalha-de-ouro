@@ -27,6 +27,7 @@
                 <button type="button" class="btn-atendido" id="btnNovo">+ novo agendamento</button>
                 <button type="button" class="btn-desfazer" id="btnTrocarSenha" hidden>trocar minha senha</button>
                 <a class="btn-desfazer link-botao" id="linkAdmin" href="/admin" hidden>administração →</a>
+                <button type="button" class="btn-cancelar" id="btnSair">sair</button>
             </span>
         </div>
 
@@ -460,12 +461,18 @@
                 return;
             }
             msg.className = 'msg sucesso';
-            msg.textContent = 'Senha trocada! Entre de novo com a senha nova.';
+            msg.textContent = 'Senha trocada! Agora entre de novo com a senha nova.';
             document.getElementById('formSenha').reset();
             setTimeout(() => location.reload(), 2000); // o navegador pede o login de novo
         });
 
         mascaraTelefone(document.getElementById('novoTelefone'));
+
+        // Botão Sair: apaga o login e volta pra tela de entrar
+        document.getElementById('btnSair').addEventListener('click', async () => {
+            await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+            location.href = '/login';
+        });
 
         async function iniciar() {
             await carregarUsuario();

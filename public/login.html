@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navalha de Ouro — Entrar</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/estilo.css">
+</head>
+
+<body>
+    <div class="stripes"></div>
+    <header>
+        <h1>Navalha de Ouro</h1>
+        <div class="sub">Área da barbearia</div>
+    </header>
+
+    <main class="main-login">
+        <section class="card">
+            <h2>Entrar</h2>
+            <form id="formLogin">
+                <div class="full">
+                    <label for="usuario">Usuário</label>
+                    <input type="text" id="usuario" required maxlength="60" autocomplete="username"
+                        autocapitalize="none" autofocus>
+                </div>
+                <div class="full">
+                    <label for="senha">Senha</label>
+                    <div class="campo-senha">
+                        <input type="password" id="senha" required maxlength="50" autocomplete="current-password">
+                        <button type="button" class="btn-desfazer" id="verSenha">ver</button>
+                    </div>
+                </div>
+                <p class="dica full">Barbeiro: o usuário é o <strong>seu nome</strong> (com ou sem acento).</p>
+                <div class="msg" id="msgLogin"></div>
+                <button type="submit" class="btn-primary" id="btnEntrar">Entrar</button>
+            </form>
+        </section>
+        <p class="dica" style="text-align:center;"><a class="link-voltar" href="/">← ir pro site de agendamento</a></p>
+    </main>
+
+    <script>
+        // Pra onde voltar depois de entrar (ex: /login?volta=/barbeiro)
+        const volta = new URLSearchParams(location.search).get('volta') || '';
+        const msg = document.getElementById('msgLogin');
+        const campoSenha = document.getElementById('senha');
+
+        document.getElementById('verSenha').addEventListener('click', (e) => {
+            const mostrando = campoSenha.type === 'text';
+            campoSenha.type = mostrando ? 'password' : 'text';
+            e.target.textContent = mostrando ? 'ver' : 'esconder';
+        });
+
+        document.getElementById('formLogin').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const botao = document.getElementById('btnEntrar');
+            botao.disabled = true;
+            botao.textContent = 'Entrando...';
+            msg.className = 'msg';
+            msg.textContent = '';
+
+            try {
+                const resposta = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        usuario: document.getElementById('usuario').value.trim(),
+                        senha: campoSenha.value,
+                        volta
+                    })
+                });
+                const dados = await resposta.json().catch(() => ({}));
+                if (!resposta.ok) {
+                    msg.className = 'msg erro';
+                    msg.textContent = dados.erro || 'Não deu pra entrar. Tente de novo.';
+                    campoSenha.value = '';
+                    campoSenha.focus();
+                    return;
+                }
+                location.href = dados.destino; // entrou!
+            } catch {
+                msg.className = 'msg erro';
+                msg.textContent = 'Sem conexão. Confira a internet e tente de novo.';
+            } finally {
+                botao.disabled = false;
+                botao.textContent = 'Entrar';
+            }
+        });
+    </script>
+</body>
+
+</html>

@@ -17,7 +17,22 @@ if (!process.env.DATABASE_URL) {
   console.error('ERRO: DATABASE_URL não configurada. Coloque ela no Environment do Render ou no arquivo .env');
   process.exit(1);
 }
-const banco = new Pool({ connectionString: process.env.DATABASE_URL });
+const banco = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  idleTimeoutMillis: 30000,      // fecha conexão parada há 30s (o Neon dorme e derruba as conexões abertas)
+  connectionTimeoutMillis: 15000 // se o banco demorar mais de 15s pra responder, desiste em vez de travar
+});
+
+// PROTEÇÃO: se o banco derrubar uma conexão parada (o Neon faz isso quando dorme),
+// só registra no log. Sem isso, esse erro derrubava o servidor inteiro.
+banco.on('error', (erro) => {
+  console.error('Conexão com o banco caiu (o sistema reconecta sozinho):', erro.message);
+});
+
+// Qualquer erro esquecido sem tratamento vira só um aviso no log, em vez de derrubar o site
+process.on('unhandledRejection', (erro) => {
+  console.error('Erro não tratado:', erro?.message || erro);
+});
 
 const PORTA = process.env.PORT || 3000;
 const PASTA_DADOS = path.join(__dirname, 'dados');
@@ -75,49 +90,81 @@ function normalizarNome(nome) {
   return String(nome || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
 }
 
-// Guarda por 5 minutos quem já fez login certo, pra não precisar
-// embaralhar a senha de novo a cada 10 segundos (a agenda atualiza sozinha)
-const loginsConferidos = new Map();
-function esquecerLogins() {
-  loginsConferidos.clear(); // chamado sempre que alguma senha muda
+// ---------- Login com sessão (cookie) ----------
+// Quem entra pela tela /login ganha um "crachá" (token aleatório) guardado num cookie.
+// O banco guarda só o hash do crachá. Sair = apagar o crachá.
+const DIAS_SESSAO = 30;
+
+function hashTexto(texto) {
+  return crypto.createHash('sha256').update(String(texto)).digest('hex');
 }
 
-// Descobre QUEM está fazendo o pedido:
+// "Assinatura" da senha atual: se a senha mudar, os crachás antigos param de valer sozinhos
+function assinaturaAdmin() { return hashTexto(`admin|${ADMIN_USUARIO}|${ADMIN_SENHA}`).slice(0, 24); }
+function assinaturaRecepcao() { return hashTexto(`recepcao|${BARBEIRO_USUARIO}|${BARBEIRO_SENHA}`).slice(0, 24); }
+function assinaturaBarbeiro(senhaHash) { return hashTexto(`barbeiro|${senhaHash}`).slice(0, 24); }
+
+// Confere usuário e senha digitados na tela de login. Devolve quem é, ou null.
+async function conferirLogin(usuario, senha) {
+  usuario = String(usuario || '').trim();
+  senha = String(senha || '');
+  if (!usuario || !senha) return null;
+
+  if (usuario === ADMIN_USUARIO && senha === ADMIN_SENHA) {
+    return { tipo: 'admin', nome: '', assinatura: assinaturaAdmin() };
+  }
+  if (BARBEIRO_USUARIO && BARBEIRO_SENHA && usuario === BARBEIRO_USUARIO && senha === BARBEIRO_SENHA) {
+    return { tipo: 'recepcao', nome: '', assinatura: assinaturaRecepcao() };
+  }
+  const { rows } = await banco.query('SELECT nome, senha_hash FROM barbeiros WHERE senha_hash IS NOT NULL');
+  const barbeiro = rows.find((b) => normalizarNome(b.nome) === normalizarNome(usuario));
+  if (!barbeiro || !senhaConfere(senha, barbeiro.senha_hash)) return null;
+  return { tipo: 'barbeiro', nome: barbeiro.nome, assinatura: assinaturaBarbeiro(barbeiro.senha_hash) };
+}
+
+function lerCookies(req) {
+  const cookies = {};
+  for (const parte of String(req.headers.cookie || '').split(';')) {
+    const i = parte.indexOf('=');
+    if (i > 0) cookies[parte.slice(0, i).trim()] = decodeURIComponent(parte.slice(i + 1).trim());
+  }
+  return cookies;
+}
+
+function cookieSessao(req, valor, maxAgeSegundos) {
+  // HttpOnly: o JavaScript da página não consegue ler o crachá (protege contra roubo)
+  // SameSite=Lax: outro site não consegue usar o crachá pra fazer ações aqui
+  // Secure: só viaja em HTTPS (no Render é sempre HTTPS)
+  const seguro = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+  return `sessao=${valor}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSegundos}${seguro}`;
+}
+
+// Descobre QUEM está fazendo o pedido, pelo crachá do cookie:
 //   { tipo: 'admin' }                    -> dono (tudo)
 //   { tipo: 'recepcao' }                 -> login compartilhado (agenda de todos)
 //   { tipo: 'barbeiro', nome: 'Carlos' } -> só a agenda dele
 //   null                                 -> ninguém logado (cliente comum)
 async function identificar(req) {
-  const login = lerLogin(req);
-  if (!login) return null;
+  const token = lerCookies(req).sessao;
+  if (!token || !/^[a-f0-9]{64}$/.test(token)) return null;
 
-  if (login.usuario === ADMIN_USUARIO && login.senha === ADMIN_SENHA) return { tipo: 'admin' };
-  if (BARBEIRO_USUARIO && BARBEIRO_SENHA && login.usuario === BARBEIRO_USUARIO && login.senha === BARBEIRO_SENHA) {
-    return { tipo: 'recepcao' };
-  }
+  const { rows } = await banco.query(
+    `SELECT s.tipo, s.nome, s.assinatura, b.senha_hash
+     FROM sessoes s LEFT JOIN barbeiros b ON s.tipo = 'barbeiro' AND b.nome = s.nome
+     WHERE s.token_hash = $1 AND s.expira > NOW()`,
+    [hashTexto(token)]
+  );
+  const s = rows[0];
+  if (!s) return null;
 
-  const chave = req.headers['authorization'];
-  const lembrado = loginsConferidos.get(chave);
-  if (lembrado && Date.now() < lembrado.expira) return lembrado.quem;
+  // A senha mudou depois do login (ou o barbeiro perdeu o acesso)? Crachá não vale mais.
+  let assinaturaAtual = null;
+  if (s.tipo === 'admin') assinaturaAtual = assinaturaAdmin();
+  if (s.tipo === 'recepcao') assinaturaAtual = BARBEIRO_USUARIO && BARBEIRO_SENHA ? assinaturaRecepcao() : null;
+  if (s.tipo === 'barbeiro') assinaturaAtual = s.senha_hash ? assinaturaBarbeiro(s.senha_hash) : null;
+  if (!assinaturaAtual || assinaturaAtual !== s.assinatura) return null;
 
-  const { rows } = await banco.query('SELECT nome, senha_hash FROM barbeiros WHERE senha_hash IS NOT NULL');
-  const barbeiro = rows.find((b) => normalizarNome(b.nome) === normalizarNome(login.usuario));
-  if (!barbeiro || !senhaConfere(login.senha, barbeiro.senha_hash)) return null;
-
-  const quem = { tipo: 'barbeiro', nome: barbeiro.nome };
-  loginsConferidos.set(chave, { quem, expira: Date.now() + 5 * 60000 });
-  return quem;
-}
-
-// Lê o usuário e a senha que o navegador mandou (login da janelinha)
-function lerLogin(req) {
-  const cabecalho = req.headers['authorization'] || '';
-  const [tipo, codigo] = cabecalho.split(' ');
-  if (tipo !== 'Basic' || !codigo) return null;
-  const texto = Buffer.from(codigo, 'base64').toString();
-  const posicao = texto.indexOf(':');
-  if (posicao === -1) return null;
-  return { usuario: texto.slice(0, posicao), senha: texto.slice(posicao + 1) };
+  return s.tipo === 'barbeiro' ? { tipo: 'barbeiro', nome: s.nome } : { tipo: s.tipo };
 }
 
 // Essas duas usam o "req.quem", que é preenchido uma vez no começo de cada pedido
@@ -130,16 +177,10 @@ function verificarSenhaBarbeiro(req) {
   return !!req.quem;
 }
 
-function pedirSenha(res, nome) {
-  res.writeHead(401, {
-    'WWW-Authenticate': `Basic realm="${nome}", charset="UTF-8"`,
-    'Content-Type': 'text/plain; charset=utf-8'
-  });
-  res.end('Acesso negado');
-}
-
-function pedirSenhaAdmin(res) {
-  pedirSenha(res, 'Admin Navalha de Ouro');
+// Página protegida sem login: manda pra tela de login, que depois volta pra cá
+function irParaLogin(res, volta) {
+  res.writeHead(302, { Location: `/login?volta=${encodeURIComponent(volta)}`, 'Cache-Control': 'no-store' });
+  res.end();
 }
 
 async function enviarEmail(destinatario, assunto, corpo) {
@@ -241,6 +282,19 @@ async function prepararBanco() {
 
   // Coluna nova: de onde veio o agendamento ('site' = cliente agendou, 'balcao' = barbeiro/recepção marcou)
   await banco.query(`ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS origem TEXT NOT NULL DEFAULT 'site'`);
+
+  // Tabela nova: crachás de login (sessões). Guarda só o hash do crachá, nunca o crachá em si.
+  await banco.query(`
+    CREATE TABLE IF NOT EXISTS sessoes (
+      token_hash TEXT PRIMARY KEY,
+      tipo TEXT NOT NULL,
+      nome TEXT NOT NULL DEFAULT '',
+      assinatura TEXT NOT NULL,
+      expira TIMESTAMPTZ NOT NULL,
+      criado_em TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await banco.query('DELETE FROM sessoes WHERE expira < NOW()'); // limpa crachás vencidos
 
   // Coluna nova: senha de cada barbeiro (embaralhada). Vazia = barbeiro sem acesso ao /barbeiro.
   await banco.query(`ALTER TABLE barbeiros ADD COLUMN IF NOT EXISTS senha_hash TEXT`);
@@ -488,19 +542,50 @@ async function tratarRequisicao(req, res) {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'same-origin');
 
-  // Proteção contra quem fica chutando senha: 10 erros em 15 minutos bloqueia aquele IP por 15 minutos
-  if (req.headers['authorization']) {
+  req.quem = await identificar(req); // descobre quem é pelo crachá (admin, recepção, qual barbeiro ou ninguém)
+
+  // ---------- Tela de login ----------
+  if (req.method === 'GET' && rota === '/login') {
+    return servirArquivoEstatico(res, path.join(PASTA_PUBLIC, 'login.html'));
+  }
+
+  // Entrar  ->  { "usuario": "...", "senha": "...", "volta": "/barbeiro" }
+  if (req.method === 'POST' && rota === '/api/login') {
+    // Proteção contra quem fica chutando senha: 10 erros em 15 minutos bloqueiam aquele IP por 15 minutos
     if (passouDoLimite('login', req, 10)) {
-      if (rota.startsWith('/api/')) {
-        return responderJSON(res, 429, { erro: 'Muitas tentativas de senha. Espere 15 minutos.' });
-      }
-      res.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8' });
-      return res.end('Muitas tentativas de senha erradas. Espere 15 minutos e tente de novo.');
+      return responderJSON(res, 429, { erro: 'Muitas tentativas erradas. Espere 15 minutos e tente de novo.' });
     }
-    req.quem = await identificar(req); // descobre quem é (admin, recepção ou qual barbeiro)
-    if (!req.quem) {
+    const dados = await lerCorpo(req);
+    const quem = await conferirLogin(dados.usuario, dados.senha);
+    if (!quem) {
       contarTentativa('login', req, 15);
+      return responderJSON(res, 401, { erro: 'Usuário ou senha incorretos.' });
     }
+
+    // Página de dono (admin/histórico) com login de barbeiro ou recepção: não entra
+    const volta = String(dados.volta || '');
+    if (['/admin', '/historico'].includes(volta) && quem.tipo !== 'admin') {
+      return responderJSON(res, 403, { erro: 'Esse login não tem acesso a essa página. Ela é só do dono.' });
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    await banco.query(
+      `INSERT INTO sessoes (token_hash, tipo, nome, assinatura, expira)
+       VALUES ($1, $2, $3, $4, NOW() + INTERVAL '${DIAS_SESSAO} days')`,
+      [hashTexto(token), quem.tipo, quem.nome, quem.assinatura]
+    );
+    res.setHeader('Set-Cookie', cookieSessao(req, token, DIAS_SESSAO * 86400));
+    const destinoPadrao = quem.tipo === 'admin' ? '/admin' : '/barbeiro';
+    const destino = /^\/[a-z]+$/.test(volta) ? volta : destinoPadrao; // só aceita endereços daqui do site
+    return responderJSON(res, 200, { ok: true, destino });
+  }
+
+  // Sair: apaga o crachá do banco e do navegador
+  if (req.method === 'POST' && rota === '/api/logout') {
+    const token = lerCookies(req).sessao;
+    if (token) await banco.query('DELETE FROM sessoes WHERE token_hash = $1', [hashTexto(token)]);
+    res.setHeader('Set-Cookie', cookieSessao(req, '', 0));
+    return responderJSON(res, 200, { ok: true });
   }
 
   // Páginas
@@ -509,7 +594,7 @@ async function tratarRequisicao(req, res) {
   }
   // Página do barbeiro (protegida por senha)
   if (req.method === 'GET' && rota === '/barbeiro') {
-    if (!verificarSenhaBarbeiro(req)) return pedirSenha(res, 'Agenda Navalha de Ouro');
+    if (!verificarSenhaBarbeiro(req)) return irParaLogin(res, '/barbeiro');
     return servirArquivoEstatico(res, path.join(PASTA_PUBLIC, 'barbeiro.html'));
   }
   if (req.method === 'GET' && rota === '/estilo.css') {
@@ -518,13 +603,13 @@ async function tratarRequisicao(req, res) {
 
   // Página de admin (protegida por senha)
   if (req.method === 'GET' && rota === '/admin') {
-    if (!verificarSenhaAdmin(req)) return pedirSenhaAdmin(res);
+    if (!verificarSenhaAdmin(req)) return irParaLogin(res, '/admin');
     return servirArquivoEstatico(res, path.join(PASTA_PUBLIC, 'admin.html'));
   }
 
   // Página do histórico (só o dono: tem faturamento)
   if (req.method === 'GET' && rota === '/historico') {
-    if (!verificarSenhaAdmin(req)) return pedirSenhaAdmin(res);
+    if (!verificarSenhaAdmin(req)) return irParaLogin(res, '/historico');
     return servirArquivoEstatico(res, path.join(PASTA_PUBLIC, 'historico.html'));
   }
 
@@ -585,7 +670,6 @@ async function tratarRequisicao(req, res) {
     const resultado = await banco.query('UPDATE barbeiros SET senha_hash = $1 WHERE nome = $2',
       [dados.senha === null ? null : gerarHashSenha(dados.senha), nome]);
     if (resultado.rowCount === 0) return responderJSON(res, 404, { erro: 'Barbeiro não encontrado.' });
-    esquecerLogins(); // quem estava logado com a senha antiga precisa entrar de novo
     return responderJSON(res, 200, { ok: true });
   }
 
@@ -594,7 +678,6 @@ async function tratarRequisicao(req, res) {
     if (!verificarSenhaAdmin(req)) return responderJSON(res, 401, { erro: 'Acesso negado.' });
     const nome = decodeURIComponent(rota.split('/').pop());
     await banco.query('DELETE FROM barbeiros WHERE nome = $1', [nome]);
-    esquecerLogins();
     return responderJSON(res, 200, await listarBarbeiros());
   }
 
@@ -637,7 +720,6 @@ async function tratarRequisicao(req, res) {
       return responderJSON(res, 400, { erro: 'A nova senha precisa ter de 6 a 50 caracteres, sem espaço e sem acento.' });
     }
     await banco.query('UPDATE barbeiros SET senha_hash = $1 WHERE nome = $2', [gerarHashSenha(dados.nova), req.quem.nome]);
-    esquecerLogins();
     return responderJSON(res, 200, { ok: true });
   }
 

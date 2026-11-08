@@ -25,6 +25,7 @@
             <span class="acoes">
                 <a class="btn-desfazer link-botao" href="/historico">histórico →</a>
                 <a class="btn-desfazer link-botao" href="/barbeiro">ver agenda →</a>
+                <button type="button" class="btn-cancelar" id="btnSair">sair</button>
             </span>
         </div>
 
@@ -170,7 +171,9 @@
         }
 
         async function carregarBarbeiros() {
-            const barbeiros = await fetch('/api/barbeiros/acessos').then(r => r.json());
+            const resposta = await fetch('/api/barbeiros/acessos');
+            if (resposta.status === 401) { location.href = '/login?volta=/admin'; return; } // login venceu
+            const barbeiros = await resposta.json();
             renderBarbeiros(barbeiros);
         }
 
@@ -223,6 +226,12 @@
 
         carregarBarbeiros();
         carregarServicos();
+    
+        // Botão Sair: apaga o login e volta pra tela de entrar
+        document.getElementById('btnSair').addEventListener('click', async () => {
+            await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+            location.href = '/login';
+        });
     </script>
 </body>
 
