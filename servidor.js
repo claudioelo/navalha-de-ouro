@@ -17,8 +17,7 @@ if (!process.env.DATABASE_URL) {
   console.error('ERRO: DATABASE_URL não configurada. Coloque ela no Environment do Render ou no arquivo .env');
   process.exit(1);
 }
-// TESTE: mostra no log qual sslmode chegou (sem mostrar a senha)
-console.log('sslmode recebido:', new URL(process.env.DATABASE_URL).searchParams.get('sslmode'));
+
 const banco = new Pool({
   connectionString: process.env.DATABASE_URL,
   idleTimeoutMillis: 30000,      // fecha conexão parada há 30s (o Neon dorme e derruba as conexões abertas)
