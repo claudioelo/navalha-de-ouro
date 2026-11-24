@@ -17,6 +17,8 @@ if (!process.env.DATABASE_URL) {
   console.error('ERRO: DATABASE_URL não configurada. Coloque ela no Environment do Render ou no arquivo .env');
   process.exit(1);
 }
+// TESTE: mostra no log qual sslmode chegou (sem mostrar a senha)
+console.log('sslmode recebido:', new URL(process.env.DATABASE_URL).searchParams.get('sslmode'));
 const banco = new Pool({
   connectionString: process.env.DATABASE_URL,
   idleTimeoutMillis: 30000,      // fecha conexão parada há 30s (o Neon dorme e derruba as conexões abertas)
@@ -371,7 +373,7 @@ async function validarAgendamento(dados, quem) {
 
   // Data e hora no formato certo (2026-11-05 e 14:30) e que existam de verdade
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || isNaN(Date.parse(`${data}T00:00:00Z`)) ||
-      new Date(`${data}T00:00:00Z`).toISOString().slice(0, 10) !== data) {
+    new Date(`${data}T00:00:00Z`).toISOString().slice(0, 10) !== data) {
     return 'Data inválida.';
   }
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) return 'Horário inválido.';
@@ -867,7 +869,7 @@ async function tratarRequisicao(req, res) {
 
       return responderJSON(res, 201, novoAgendamento);
     } catch (erro) {
-      await conexao.query('ROLLBACK').catch(() => {});
+      await conexao.query('ROLLBACK').catch(() => { });
       console.error('Erro ao agendar:', erro.message);
       return responderJSON(res, 500, { erro: 'Erro ao processar o agendamento.' });
     } finally {
